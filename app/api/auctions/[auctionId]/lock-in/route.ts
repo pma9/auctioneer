@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { requireAuctionGuest, requireUser } from "@/lib/firebase/server-auth";
 
+const ALREADY_LOCKED_ERROR = "Sorry someone else already locked-in before you!";
+
 type RouteContext = {
   params: Promise<{ auctionId: string }>;
 };
@@ -11,12 +13,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const { auctionId } = await context.params;
     const user = await requireUser(request);
-    await requireAuctionGuest(auctionId, user.uid);
+    const guestAuctionDoc = await requireAuctionGuest(auctionId, user.uid);
+    const guestName = guestAuctionDoc.get("displayName") ?? "Guest";
 
-    const { itemId, amount, bidderName } = (await request.json()) as {
+    const { itemId, amount } = (await request.json()) as {
       itemId?: string;
       amount?: number;
-      bidderName?: string;
     };
     if (!itemId || !amount)
       return NextResponse.json({ error: "Item and bid amount are required." }, { status: 400 });
@@ -25,8 +27,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       const itemRef = adminDb.doc(`auctions/${auctionId}/items/${itemId}`);
       const itemDoc = await transaction.get(itemRef);
       if (!itemDoc.exists) throw new Error("Item not found.");
-      if (itemDoc.get("status") !== "open" || itemDoc.get("winnerUid"))
-        throw new Error("Item is already closed.");
+      if (itemDoc.get("status") !== "open" || itemDoc.get("winnerUid")) throw new Error(ALREADY_LOCKED_ERROR);
       if (amount < Number(itemDoc.get("lockInPrice") ?? 0))
         throw new Error("Bid does not meet the lock-in price.");
 
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
           auctionId,
           itemId,
           uid: user.uid,
-          bidderName: bidderName || user.name || "Guest",
+          bidderName: guestName,
           amount,
           type: "locked",
           updatedAt: FieldValue.serverTimestamp(),
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       transaction.update(itemRef, {
         status: "locked",
         winnerUid: user.uid,
-        winnerName: bidderName || user.name || "Guest",
+        winnerName: guestName,
         winningBid: amount,
         finalPrice: amount,
         lockedAt: FieldValue.serverTimestamp(),

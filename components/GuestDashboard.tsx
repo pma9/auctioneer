@@ -23,6 +23,12 @@ type Props = {
   auctionId: string;
 };
 
+type LockInRequest = {
+  item: AuctionItem;
+  amount: number;
+  errorTarget: "dialog" | "page";
+};
+
 export function GuestDashboard({ auctionId }: Props) {
   const [user, setUser] = useState<User | null>(null);
   const [items, setItems] = useState<AuctionItem[]>([]);
@@ -30,6 +36,9 @@ export function GuestDashboard({ auctionId }: Props) {
   const [activeTab, setActiveTab] = useState<"auction" | "bids">("auction");
   const [selectedItem, setSelectedItem] = useState<AuctionItem | null>(null);
   const [bidAmount, setBidAmount] = useState("");
+  const [bidError, setBidError] = useState("");
+  const [pendingLockIn, setPendingLockIn] = useState<LockInRequest | null>(null);
+  const [isLockingIn, setIsLockingIn] = useState(false);
   const [message, setMessage] = useState("");
 
   useEffect(() => onAuthStateChanged(auth, setUser), []);
@@ -59,9 +68,14 @@ export function GuestDashboard({ auctionId }: Props) {
   async function saveBid(event: FormEvent) {
     event.preventDefault();
     if (!user || !selectedItem) return;
+    setBidError("");
     const amount = Number(bidAmount);
+    if (!bidAmount.trim() || !Number.isFinite(amount)) {
+      setBidError("Enter a valid bid amount.");
+      return;
+    }
     if (amount < selectedItem.startingPrice) {
-      setMessage(`Bid must be at least ${formatCurrency(selectedItem.startingPrice)}.`);
+      setBidError(`Bid must be at least ${formatCurrency(selectedItem.startingPrice)}.`);
       return;
     }
 
@@ -81,22 +95,67 @@ export function GuestDashboard({ auctionId }: Props) {
     );
     setSelectedItem(null);
     setBidAmount("");
+    setBidError("");
   }
 
-  async function lockIn(item: AuctionItem, amount: number) {
+  function requestLockIn(item: AuctionItem, amount: number, errorTarget: LockInRequest["errorTarget"]) {
+    if (!Number.isFinite(amount)) {
+      const error = "Enter a valid bid amount.";
+      if (errorTarget === "dialog") setBidError(error);
+      else setMessage(error);
+      return;
+    }
+    if (amount < item.lockInPrice) {
+      const error = `Lock-in bid must be at least ${formatCurrency(item.lockInPrice)}.`;
+      if (errorTarget === "dialog") setBidError(error);
+      else setMessage(error);
+      return;
+    }
+
+    if (errorTarget === "dialog") setBidError("");
+    else setMessage("");
+    setPendingLockIn({ item, amount, errorTarget });
+  }
+
+  async function confirmLockIn() {
+    if (!pendingLockIn) return;
+    setIsLockingIn(true);
+    await lockIn(pendingLockIn.item, pendingLockIn.amount, pendingLockIn.errorTarget);
+    setIsLockingIn(false);
+    setPendingLockIn(null);
+  }
+
+  async function lockIn(item: AuctionItem, amount: number, errorTarget: LockInRequest["errorTarget"]) {
     const token = await user?.getIdToken();
-    if (!token) return setMessage("Sign in first.");
+    if (!token) {
+      const error = "Sign in first.";
+      if (errorTarget === "dialog") setBidError(error);
+      else setMessage(error);
+      return false;
+    }
     const response = await fetch(`/api/auctions/${auctionId}/lock-in`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({
         itemId: item.id,
         amount,
-        bidderName: user?.displayName || user?.phoneNumber || "Guest",
       }),
     });
     const result = await response.json();
-    setMessage(response.ok ? "Locked in. You won this item immediately." : result.error);
+    if (!response.ok) {
+      const error = result.error ?? "Unable to lock in item.";
+      if (errorTarget === "dialog") setBidError(error);
+      else setMessage(error);
+      return false;
+    }
+
+    setMessage("Locked in. You won this item immediately.");
+    if (errorTarget === "dialog") {
+      setSelectedItem(null);
+      setBidAmount("");
+      setBidError("");
+    }
+    return true;
   }
 
   async function removeBid(bid: Bid) {
@@ -151,6 +210,7 @@ export function GuestDashboard({ auctionId }: Props) {
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {items.map((item) => {
               const myBid = bidsByItem.get(item.id);
+              const lockedByAnotherGuest = item.status === "locked" && item.winnerUid !== user.uid;
               return (
                 <motion.article layout className="card flex flex-col gap-4" key={item.id}>
                   <div>
@@ -162,26 +222,44 @@ export function GuestDashboard({ auctionId }: Props) {
                       {item.notes || "No notes provided."}
                     </p>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 text-sm">
-                    <Price label="MSRP" value={item.msrp} />
-                    <Price label="Start" value={item.startingPrice} />
-                    <Price label="Lock" value={item.lockInPrice} />
-                  </div>
-                  {myBid && (
-                    <p className="rounded-2xl bg-slate-100 p-3 text-sm">
-                      Your bid: {formatCurrency(myBid.amount)} ({myBid.type})
-                    </p>
+                  {(myBid || lockedByAnotherGuest) && (
+                    <div className="space-y-2">
+                      {myBid && (
+                        <p
+                          className={`rounded-2xl p-3 text-sm font-medium ${
+                            myBid.type === "locked"
+                              ? "bg-green-50 text-green-800"
+                              : "bg-yellow-50 text-yellow-800"
+                          }`}
+                        >
+                          Your bid: {formatCurrency(myBid.amount)} ({myBid.type})
+                        </p>
+                      )}
+                      {lockedByAnotherGuest && (
+                        <p className="rounded-2xl bg-red-50 p-3 text-sm font-medium text-red-700">
+                          Locked in by {item.winnerName || "another guest"}
+                        </p>
+                      )}
+                    </div>
                   )}
-                  <button
-                    className="button mt-auto"
-                    disabled={item.status !== "open"}
-                    onClick={() => {
-                      setSelectedItem(item);
-                      setBidAmount(String(myBid?.amount ?? item.startingPrice));
-                    }}
-                  >
-                    Bid
-                  </button>
+                  <div className="mt-auto space-y-4">
+                    <div className="grid grid-cols-3 gap-2 text-sm">
+                      <Price label="MSRP" value={item.msrp} />
+                      <Price label="Start" value={item.startingPrice} />
+                      <Price label="Lock" value={item.lockInPrice} />
+                    </div>
+                    <button
+                      className="button w-full"
+                      disabled={item.status !== "open"}
+                      onClick={() => {
+                        setSelectedItem(item);
+                        setBidAmount(String(myBid?.amount ?? item.startingPrice));
+                        setBidError("");
+                      }}
+                    >
+                      Bid
+                    </button>
+                  </div>
                 </motion.article>
               );
             })}
@@ -211,6 +289,7 @@ export function GuestDashboard({ auctionId }: Props) {
                           onClick={() => {
                             setSelectedItem(item);
                             setBidAmount(String(bid.amount));
+                            setBidError("");
                           }}
                         >
                           Edit
@@ -219,7 +298,7 @@ export function GuestDashboard({ auctionId }: Props) {
                           Remove
                         </button>
                         {bid.amount >= item.lockInPrice && (
-                          <button className="button" onClick={() => lockIn(item, bid.amount)}>
+                          <button className="button" onClick={() => requestLockIn(item, bid.amount, "page")}>
                             Lock In
                           </button>
                         )}
@@ -253,8 +332,12 @@ export function GuestDashboard({ auctionId }: Props) {
               className="input"
               type="number"
               value={bidAmount}
-              onChange={(event) => setBidAmount(event.target.value)}
+              onChange={(event) => {
+                setBidAmount(event.target.value);
+                setBidError("");
+              }}
             />
+            {bidError && <p className="mt-3 rounded-2xl bg-red-50 p-3 text-sm text-red-700">{bidError}</p>}
             <div className="mt-5 flex flex-col gap-2 sm:flex-row">
               <button className="button flex-1" type="submit">
                 Save regular bid
@@ -263,16 +346,51 @@ export function GuestDashboard({ auctionId }: Props) {
                 <button
                   className="button-secondary flex-1"
                   type="button"
-                  onClick={() => lockIn(selectedItem, Number(bidAmount))}
+                  onClick={() => requestLockIn(selectedItem, Number(bidAmount), "dialog")}
                 >
                   Lock in now
                 </button>
               )}
-              <button className="button-ghost" type="button" onClick={() => setSelectedItem(null)}>
+              <button
+                className="button-ghost"
+                type="button"
+                onClick={() => {
+                  setSelectedItem(null);
+                  setBidError("");
+                }}
+              >
                 Cancel
               </button>
             </div>
           </motion.form>
+        </div>
+      )}
+
+      {pendingLockIn && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl"
+          >
+            <h2 className="text-2xl font-bold">Lock in bid?</h2>
+            <p className="mt-3 text-slate-600">
+              By locking in this bid, you are going to pay the price that you bid but you are guaranteed the
+              item. You are NOT able to edit or remove a locked-in bid, it is final! Do you want to lock-in?
+            </p>
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+              <button className="button flex-1" disabled={isLockingIn} onClick={confirmLockIn}>
+                {isLockingIn ? "Locking in..." : "Yes, lock in"}
+              </button>
+              <button
+                className="button-secondary flex-1"
+                disabled={isLockingIn}
+                onClick={() => setPendingLockIn(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </motion.div>
         </div>
       )}
     </div>

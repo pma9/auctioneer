@@ -2,13 +2,13 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { onAuthStateChanged, User } from "firebase/auth";
 import { collection, doc, onSnapshot } from "firebase/firestore";
 import Link from "next/link";
 import { ArrowLeft, Pencil, Sheet, Trash2, UserPlus } from "lucide-react";
 import { US_PHONE_PLACEHOLDER } from "@/lib/auction/phone-normalization";
 import type { Auction, VerifiedGuest } from "@/lib/auction/types";
-import { auth, db } from "@/lib/firebase/client";
+import { db } from "@/lib/firebase/client";
+import { useRequiredFirebaseUser } from "@/components/useRequiredFirebaseUser";
 
 type Props = {
   auctionId: string;
@@ -33,7 +33,7 @@ const emptyGuestForm = {
 };
 
 export function AdminAuctionSettings({ auctionId }: Props) {
-  const [user, setUser] = useState<User | null>(null);
+  const user = useRequiredFirebaseUser();
   const [auction, setAuction] = useState<Auction | null>(null);
   const [guests, setGuests] = useState<GuestRow[]>([]);
   const [sheetUrl, setSheetUrl] = useState("");
@@ -41,9 +41,9 @@ export function AdminAuctionSettings({ auctionId }: Props) {
   const [editingGuest, setEditingGuest] = useState<GuestRow | null>(null);
   const [message, setMessage] = useState("");
 
-  useEffect(() => onAuthStateChanged(auth, setUser), []);
-
   useEffect(() => {
+    if (!user) return;
+
     const unsubAuction = onSnapshot(doc(db, `auctions/${auctionId}`), (snapshot) =>
       setAuction(snapshot.exists() ? ({ id: snapshot.id, ...snapshot.data() } as Auction) : null),
     );
@@ -60,7 +60,7 @@ export function AdminAuctionSettings({ auctionId }: Props) {
       unsubAuction();
       unsubGuests();
     };
-  }, [auctionId]);
+  }, [auctionId, user]);
 
   async function importSheet(event: FormEvent) {
     event.preventDefault();
@@ -132,6 +132,8 @@ export function AdminAuctionSettings({ auctionId }: Props) {
     setEditingGuest(null);
     setGuestForm(emptyGuestForm);
   }
+
+  if (!user) return null;
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-slate-100 px-4 py-6 text-slate-950 sm:px-6 lg:px-8">

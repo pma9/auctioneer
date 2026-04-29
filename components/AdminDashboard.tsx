@@ -2,7 +2,6 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { onAuthStateChanged, User } from "firebase/auth";
 import {
   collection,
   collectionGroup,
@@ -19,7 +18,8 @@ import Link from "next/link";
 import { Pencil, Plus, RotateCcw, Settings, Trash2 } from "lucide-react";
 import { calculateVickreyBreakdown, formatCurrency, normalizeItemName } from "@/lib/auction/calculations";
 import type { Auction, AuctionItem, Bid } from "@/lib/auction/types";
-import { auth, db } from "@/lib/firebase/client";
+import { db } from "@/lib/firebase/client";
+import { useRequiredFirebaseUser } from "@/components/useRequiredFirebaseUser";
 
 type Props = {
   auctionId: string;
@@ -37,7 +37,7 @@ type ItemForm = typeof emptyItemForm;
 type AdminTab = "current" | "all";
 
 export function AdminDashboard({ auctionId }: Props) {
-  const [user, setUser] = useState<User | null>(null);
+  const user = useRequiredFirebaseUser();
   const [auction, setAuction] = useState<Auction | null>(null);
   const [items, setItems] = useState<AuctionItem[]>([]);
   const [bids, setBids] = useState<Bid[]>([]);
@@ -50,9 +50,9 @@ export function AdminDashboard({ auctionId }: Props) {
   const [isSettleModalOpen, setIsSettleModalOpen] = useState(false);
   const [message, setMessage] = useState("");
 
-  useEffect(() => onAuthStateChanged(auth, setUser), []);
-
   useEffect(() => {
+    if (!user) return;
+
     const unsubAuction = onSnapshot(doc(db, `auctions/${auctionId}`), (snapshot) =>
       setAuction(snapshot.exists() ? ({ id: snapshot.id, ...snapshot.data() } as Auction) : null),
     );
@@ -68,7 +68,7 @@ export function AdminDashboard({ auctionId }: Props) {
       unsubItems();
       unsubBids();
     };
-  }, [auctionId]);
+  }, [auctionId, user]);
 
   const analytics = useMemo(() => {
     const bidsByItem = new Map<string, Bid[]>();
@@ -192,6 +192,8 @@ export function AdminDashboard({ auctionId }: Props) {
       return true;
     })
     .sort((a, b) => Number(b.status === "invalid") - Number(a.status === "invalid"));
+
+  if (!user) return null;
 
   return (
     <div className="min-h-screen bg-slate-100 px-4 py-6 text-slate-950 sm:px-6 lg:px-8">

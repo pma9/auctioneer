@@ -22,4 +22,5 @@ export async function requireAuctionAdmin(auctionId: string, user: DecodedIdToke
 export async function requireAuctionGuest(auctionId: string, uid: string) {
   const userAuctionDoc = await adminDb.doc(`users/${uid}/auctions/${auctionId}`).get();
   if (!userAuctionDoc.exists) throw new Error("Auction guest access required.");
+  return userAuctionDoc;
 }
