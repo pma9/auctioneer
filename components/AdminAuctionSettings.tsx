@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { collection, doc, onSnapshot } from "firebase/firestore";
+import { collection, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
 import Link from "next/link";
 import { ArrowLeft, Pencil, Sheet, Trash2, UserPlus } from "lucide-react";
 import { US_PHONE_PLACEHOLDER } from "@/lib/auction/phone-normalization";
@@ -32,11 +32,17 @@ const emptyGuestForm = {
   phone: "",
 };
 
+const emptyNotesForm = {
+  auctionNotes: "",
+  closingNotes: "",
+};
+
 export function AdminAuctionSettings({ auctionId }: Props) {
   const user = useRequiredFirebaseUser();
   const [auction, setAuction] = useState<Auction | null>(null);
   const [guests, setGuests] = useState<GuestRow[]>([]);
   const [sheetUrl, setSheetUrl] = useState("");
+  const [notesForm, setNotesForm] = useState(emptyNotesForm);
   const [guestForm, setGuestForm] = useState(emptyGuestForm);
   const [editingGuest, setEditingGuest] = useState<GuestRow | null>(null);
   const [message, setMessage] = useState("");
@@ -44,9 +50,14 @@ export function AdminAuctionSettings({ auctionId }: Props) {
   useEffect(() => {
     if (!user) return;
 
-    const unsubAuction = onSnapshot(doc(db, `auctions/${auctionId}`), (snapshot) =>
-      setAuction(snapshot.exists() ? ({ id: snapshot.id, ...snapshot.data() } as Auction) : null),
-    );
+    const unsubAuction = onSnapshot(doc(db, `auctions/${auctionId}`), (snapshot) => {
+      const nextAuction = snapshot.exists() ? ({ id: snapshot.id, ...snapshot.data() } as Auction) : null;
+      setAuction(nextAuction);
+      setNotesForm({
+        auctionNotes: nextAuction?.auctionNotes ?? "",
+        closingNotes: nextAuction?.closingNotes ?? "",
+      });
+    });
     const unsubGuests = onSnapshot(collection(db, `auctions/${auctionId}/verifiedGuests`), (snapshot) =>
       setGuests(
         snapshot.docs.map((guestDoc) => {
@@ -84,6 +95,16 @@ export function AdminAuctionSettings({ auctionId }: Props) {
     setMessage(
       `Imported ${result.total} rows: ${result.created} new, ${result.updated} updated.${skippedMessage}`,
     );
+  }
+
+  async function saveAuctionNotes(event: FormEvent) {
+    event.preventDefault();
+    await updateDoc(doc(db, `auctions/${auctionId}`), {
+      auctionNotes: notesForm.auctionNotes.trim(),
+      closingNotes: notesForm.closingNotes.trim(),
+      updatedAt: serverTimestamp(),
+    });
+    setMessage("Auction notes saved.");
   }
 
   async function saveGuest(event: FormEvent) {
@@ -154,6 +175,37 @@ export function AdminAuctionSettings({ auctionId }: Props) {
         </header>
 
         {message && <p className="rounded-2xl bg-amber-50 p-3 text-sm text-amber-800">{message}</p>}
+
+        <motion.form layout className="card space-y-4" onSubmit={saveAuctionNotes}>
+          <div>
+            <h2 className="font-semibold">Guest dashboard notes</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Share general auction information while bidding is open, then payment or pickup instructions
+              after close.
+            </p>
+          </div>
+          <label className="label">
+            Auction notes
+            <textarea
+              className="input mt-1 min-h-24"
+              value={notesForm.auctionNotes}
+              onChange={(event) => setNotesForm({ ...notesForm, auctionNotes: event.target.value })}
+              placeholder="Shown to guests while the auction is open."
+            />
+          </label>
+          <label className="label">
+            Closing notes
+            <textarea
+              className="input mt-1 min-h-24"
+              value={notesForm.closingNotes}
+              onChange={(event) => setNotesForm({ ...notesForm, closingNotes: event.target.value })}
+              placeholder="Shown to guests after the auction is closed."
+            />
+          </label>
+          <button className="button w-full sm:w-auto" type="submit">
+            Save auction notes
+          </button>
+        </motion.form>
 
         <div className="grid min-w-0 gap-6 lg:grid-cols-[1fr_1.4fr]">
           <motion.form layout className="card min-w-0 space-y-4" onSubmit={importSheet}>

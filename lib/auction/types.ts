@@ -7,7 +7,11 @@ export type Auction = {
   title: string;
   status: AuctionStatus;
   createdBy: string;
+  auctionNotes?: string;
+  closingNotes?: string;
   createdAt?: unknown;
+  closedAt?: unknown;
+  reopenedAt?: unknown;
   startsAt?: unknown;
   closesAt?: unknown;
 };
@@ -30,6 +34,7 @@ export type AuctionItem = {
   importValidationErrors?: string[];
   updatedAt?: unknown;
   createdAt?: unknown;
+  settledAt?: unknown;
 };
 
 export type Bid = {

@@ -48,6 +48,7 @@ export function AdminDashboard({ auctionId }: Props) {
   const [editingItem, setEditingItem] = useState<AuctionItem | null>(null);
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
   const [isSettleModalOpen, setIsSettleModalOpen] = useState(false);
+  const [isReopenModalOpen, setIsReopenModalOpen] = useState(false);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -135,6 +136,18 @@ export function AdminDashboard({ auctionId }: Props) {
     if (response.ok) setIsSettleModalOpen(false);
   }
 
+  async function reopenAuction() {
+    const token = await user?.getIdToken();
+    if (!token) return setMessage("Sign in as an auction admin first.");
+    const response = await fetch(`/api/auctions/${auctionId}/reopen`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const result = await response.json();
+    setMessage(response.ok ? "Auction re-opened." : result.error);
+    if (response.ok) setIsReopenModalOpen(false);
+  }
+
   function openNewItemModal() {
     setEditingItem(null);
     setItemForm(emptyItemForm);
@@ -203,7 +216,9 @@ export function AdminDashboard({ auctionId }: Props) {
           <div className="mt-3 flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
               <h1 className="text-3xl font-bold">{auction?.title ?? "Auction"}</h1>
-              <p className="mt-1 text-sm text-slate-300">Auction ID: {auctionId}</p>
+              <p className="mt-1 text-sm text-slate-300">
+                Auction ID: {auctionId} · Status: {auction?.status ?? "loading"}
+              </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Link
@@ -213,15 +228,23 @@ export function AdminDashboard({ auctionId }: Props) {
               >
                 <Settings size={18} />
               </Link>
-              <button
-                className="rounded-full bg-red-600 px-5 py-3 font-bold text-white hover:bg-red-700"
-                onClick={() => setIsSettleModalOpen(true)}
-              >
-                Close auction
-              </button>
+              {auction?.status === "closed" ? (
+                <button className="button-light" onClick={() => setIsReopenModalOpen(true)}>
+                  Re-open auction
+                </button>
+              ) : (
+                <button
+                  className="rounded-full bg-red-600 px-5 py-3 font-bold text-white hover:bg-red-700"
+                  onClick={() => setIsSettleModalOpen(true)}
+                >
+                  Close auction
+                </button>
+              )}
             </div>
           </div>
         </header>
+
+        {message && <p className="rounded-2xl bg-amber-50 p-3 text-sm text-amber-800">{message}</p>}
 
         <section className="grid gap-4 md:grid-cols-4">
           <Stat label="Real-time revenue" value={formatCurrency(analytics.revenue)} />
@@ -229,8 +252,6 @@ export function AdminDashboard({ auctionId }: Props) {
           <Stat label="Items" value={String(analytics.activeItems.length)} />
           <Stat label="Invalid items" value={String(analytics.invalidItems.length)} />
         </section>
-
-        {message && <p className="rounded-2xl bg-amber-50 p-3 text-sm text-amber-800">{message}</p>}
 
         <section className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -439,7 +460,40 @@ export function AdminDashboard({ auctionId }: Props) {
               <button className="button flex-1" onClick={settleAuction}>
                 Yes
               </button>
-              <button className="button-ghost" type="button" onClick={() => setIsSettleModalOpen(false)}>
+              <button
+                className="button-ghost flex-1"
+                type="button"
+                onClick={() => setIsSettleModalOpen(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {isReopenModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-xl"
+          >
+            <h2 className="text-2xl font-bold">Re-open auction?</h2>
+            <p className="mt-3 text-slate-600">
+              This will let guests place and edit regular bids again. Settled items will return to open
+              status, while locked-in items will stay locked.
+            </p>
+            <p className="mt-3 font-semibold text-slate-950">Are you sure?</p>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+              <button className="button flex-1" onClick={reopenAuction}>
+                Yes, re-open
+              </button>
+              <button
+                className="button-ghost flex-1"
+                type="button"
+                onClick={() => setIsReopenModalOpen(false)}
+              >
                 Cancel
               </button>
             </div>
