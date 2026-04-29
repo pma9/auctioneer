@@ -15,6 +15,7 @@ import {
   where,
 } from "firebase/firestore";
 import Link from "next/link";
+import { AuctionRulesModal } from "@/components/AuctionRulesModal";
 import { calculateFinancialSummary, formatCurrency } from "@/lib/auction/calculations";
 import type { Auction, AuctionItem, Bid } from "@/lib/auction/types";
 import { auth, db } from "@/lib/firebase/client";
@@ -240,7 +241,14 @@ export function GuestDashboard({ auctionId }: Props) {
           <p className="text-sm uppercase tracking-[0.3em] text-amber-300">
             {isAuctionClosed ? "Auction Closed" : "Guest Dashboard"}
           </p>
-          <h1 className="mt-3 text-3xl font-bold">{auction?.title ?? "Auction"}</h1>
+          <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <h1 className="text-3xl font-bold">{auction?.title ?? "Auction"}</h1>
+            <AuctionRulesModal
+              className="button-light inline-flex w-full text-lg sm:w-auto lg:shrink-0"
+              label="Help"
+              trigger="button"
+            />
+          </div>
           {!isAuctionClosed && auction?.auctionNotes && (
             <p className="mt-4 max-w-3xl whitespace-pre-wrap text-sm leading-6 text-slate-200">
               {auction.auctionNotes}

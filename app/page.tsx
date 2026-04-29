@@ -1,3 +1,4 @@
+import { AuctionRulesModal } from "@/components/AuctionRulesModal";
 import Link from "next/link";
 
 export default function Home() {
@@ -10,7 +11,7 @@ export default function Home() {
         </h1>
         <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-600">
           Import a catalog from Google Sheets, run sealed bidding in Firestore, and let guests lock in
-          eligible items instantly.
+          eligible items instantly. <AuctionRulesModal />
         </p>
         <div className="mt-10 flex flex-col gap-3 sm:flex-row">
           <Link className="button inline-flex" href="/auctions/new">
