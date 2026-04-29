@@ -6,6 +6,7 @@ import { onAuthStateChanged, User } from "firebase/auth";
 import {
   collection,
   collectionGroup,
+  deleteField,
   doc,
   onSnapshot,
   query,
@@ -15,7 +16,7 @@ import {
   where,
 } from "firebase/firestore";
 import Link from "next/link";
-import { Pencil, Plus, Settings, Trash2 } from "lucide-react";
+import { Pencil, Plus, RotateCcw, Settings, Trash2 } from "lucide-react";
 import { calculateVickreyBreakdown, formatCurrency, normalizeItemName } from "@/lib/auction/calculations";
 import type { Auction, AuctionItem, Bid } from "@/lib/auction/types";
 import { auth, db } from "@/lib/firebase/client";
@@ -42,6 +43,7 @@ export function AdminDashboard({ auctionId }: Props) {
   const [bids, setBids] = useState<Bid[]>([]);
   const [activeTab, setActiveTab] = useState<AdminTab>("current");
   const [showRemovedItems, setShowRemovedItems] = useState(false);
+  const [showInvalidItems, setShowInvalidItems] = useState(true);
   const [itemForm, setItemForm] = useState<ItemForm>(emptyItemForm);
   const [editingItem, setEditingItem] = useState<AuctionItem | null>(null);
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
@@ -71,13 +73,15 @@ export function AdminDashboard({ auctionId }: Props) {
   const analytics = useMemo(() => {
     const bidsByItem = new Map<string, Bid[]>();
     bids.forEach((bid) => bidsByItem.set(bid.itemId, [...(bidsByItem.get(bid.itemId) ?? []), bid]));
-    const activeItems = items.filter((item) => item.status !== "removed");
+    const activeItems = items.filter((item) => item.status === "open" || item.status === "locked");
+    const invalidItems = items.filter((item) => item.status === "invalid");
     const rows = activeItems.map((item) => calculateVickreyBreakdown(item, bidsByItem.get(item.id) ?? []));
     const rowsByItemId = new Map(rows.map((row) => [row.item.id, row]));
     return {
       rows,
       rowsByItemId,
       activeItems,
+      invalidItems,
       currentRows: rows.filter((row) => row.topBid),
       revenue: rows.reduce((sum, row) => sum + row.revenue, 0),
       totalBids: bids.length,
@@ -86,6 +90,11 @@ export function AdminDashboard({ auctionId }: Props) {
 
   async function saveItem(event: FormEvent) {
     event.preventDefault();
+    if (!hasValidItemForm(itemForm)) {
+      setMessage("Item name, starting price, and lock-in price are required.");
+      return;
+    }
+
     const payload = {
       name: itemForm.name.trim(),
       notes: itemForm.notes.trim(),
@@ -97,7 +106,11 @@ export function AdminDashboard({ auctionId }: Props) {
     };
 
     if (editingItem) {
-      await updateDoc(doc(db, `auctions/${auctionId}/items/${editingItem.id}`), payload);
+      await updateDoc(doc(db, `auctions/${auctionId}/items/${editingItem.id}`), {
+        ...payload,
+        importValidationErrors: deleteField(),
+        ...(editingItem.status === "invalid" || editingItem.status === "removed" ? { status: "open" } : {}),
+      });
     } else {
       const itemRef = doc(collection(db, `auctions/${auctionId}/items`));
       await setDoc(itemRef, {
@@ -130,12 +143,16 @@ export function AdminDashboard({ auctionId }: Props) {
 
   function openEditItemModal(item: AuctionItem) {
     setEditingItem(item);
+    const needsStartingPrice = item.importValidationErrors?.some((error) =>
+      error.startsWith("Starting price"),
+    );
+    const needsLockInPrice = item.importValidationErrors?.some((error) => error.startsWith("Lock-in price"));
     setItemForm({
       name: item.name,
       notes: item.notes ?? "",
       msrp: item.msrp ? String(item.msrp) : "",
-      startingPrice: String(item.startingPrice ?? 0),
-      lockInPrice: String(item.lockInPrice ?? 0),
+      startingPrice: needsStartingPrice ? "" : String(item.startingPrice ?? 0),
+      lockInPrice: needsLockInPrice ? "" : String(item.lockInPrice ?? 0),
     });
     setIsItemModalOpen(true);
   }
@@ -159,7 +176,22 @@ export function AdminDashboard({ auctionId }: Props) {
     });
   }
 
-  const allTableItems = showRemovedItems ? items : analytics.activeItems;
+  async function restoreItem(item: AuctionItem) {
+    const importValidationErrors = validationErrorsForItem(item);
+    await updateDoc(doc(db, `auctions/${auctionId}/items/${item.id}`), {
+      status: importValidationErrors.length ? "invalid" : "open",
+      importValidationErrors: importValidationErrors.length ? importValidationErrors : deleteField(),
+      updatedAt: serverTimestamp(),
+    });
+  }
+
+  const allTableItems = items
+    .filter((item) => {
+      if (!showRemovedItems && item.status === "removed") return false;
+      if (!showInvalidItems && item.status === "invalid") return false;
+      return true;
+    })
+    .sort((a, b) => Number(b.status === "invalid") - Number(a.status === "invalid"));
 
   return (
     <div className="min-h-screen bg-slate-100 px-4 py-6 text-slate-950 sm:px-6 lg:px-8">
@@ -189,10 +221,11 @@ export function AdminDashboard({ auctionId }: Props) {
           </div>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-3">
+        <section className="grid gap-4 md:grid-cols-4">
           <Stat label="Real-time revenue" value={formatCurrency(analytics.revenue)} />
           <Stat label="Total bids" value={String(analytics.totalBids)} />
           <Stat label="Items" value={String(analytics.activeItems.length)} />
+          <Stat label="Invalid items" value={String(analytics.invalidItems.length)} />
         </section>
 
         {message && <p className="rounded-2xl bg-amber-50 p-3 text-sm text-amber-800">{message}</p>}
@@ -246,14 +279,26 @@ export function AdminDashboard({ auctionId }: Props) {
             </section>
           ) : (
             <section className="card space-y-4 overflow-hidden">
-              <label className="flex items-center gap-2 text-sm font-semibold text-slate-600">
-                <input
-                  type="checkbox"
-                  checked={showRemovedItems}
-                  onChange={(event) => setShowRemovedItems(event.target.checked)}
-                />
-                Show removed items
-              </label>
+              <div className="flex flex-wrap gap-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
+                  <input
+                    id="show-invalid-items"
+                    type="checkbox"
+                    checked={showInvalidItems}
+                    onChange={(event) => setShowInvalidItems(event.target.checked)}
+                  />
+                  <label htmlFor="show-invalid-items">Show invalid</label>
+                </div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
+                  <input
+                    id="show-removed-items"
+                    type="checkbox"
+                    checked={showRemovedItems}
+                    onChange={(event) => setShowRemovedItems(event.target.checked)}
+                  />
+                  <label htmlFor="show-removed-items">Show removed</label>
+                </div>
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[860px] text-left text-sm">
                   <thead className="text-slate-500">
@@ -263,19 +308,22 @@ export function AdminDashboard({ auctionId }: Props) {
                       <th>MSRP</th>
                       <th>Start price</th>
                       <th>Lock-in price</th>
-                      {showRemovedItems && <th>Status</th>}
+                      <th>Status</th>
                       <th />
                     </tr>
                   </thead>
                   <tbody>
                     {allTableItems.map((item) => (
-                      <tr className="border-t border-slate-100" key={item.id}>
+                      <tr
+                        className={`border-t border-slate-100 ${item.status === "invalid" ? "bg-yellow-50" : ""}`}
+                        key={item.id}
+                      >
                         <td className="py-3 font-medium">{item.name}</td>
                         <td className="max-w-xs text-slate-600">{item.notes || "-"}</td>
                         <td>{formatCurrency(item.msrp)}</td>
                         <td>{formatCurrency(item.startingPrice)}</td>
                         <td>{formatCurrency(item.lockInPrice)}</td>
-                        {showRemovedItems && <td>{item.status}</td>}
+                        <td>{item.status}</td>
                         <td>
                           <button
                             className="icon-button"
@@ -291,6 +339,15 @@ export function AdminDashboard({ auctionId }: Props) {
                               onClick={() => removeItem(item)}
                             >
                               <Trash2 size={16} />
+                            </button>
+                          )}
+                          {item.status === "removed" && (
+                            <button
+                              className="icon-button"
+                              aria-label={`Restore ${item.name}`}
+                              onClick={() => restoreItem(item)}
+                            >
+                              <RotateCcw size={16} />
                             </button>
                           )}
                         </td>
@@ -432,4 +489,32 @@ function formatBid(bid?: Bid) {
 
 function isLockedIn(item: AuctionItem, topBid?: Bid) {
   return item.status === "locked" || topBid?.type === "locked";
+}
+
+function hasValidItemForm(itemForm: ItemForm) {
+  return (
+    itemForm.name.trim().length > 0 &&
+    isNonnegativeNumber(itemForm.startingPrice) &&
+    isNonnegativeNumber(itemForm.lockInPrice)
+  );
+}
+
+function validationErrorsForItem(item: AuctionItem) {
+  if (item.importValidationErrors?.length) return item.importValidationErrors;
+
+  const errors: string[] = [];
+  if (!item.name.trim()) errors.push("Item name is missing.");
+  if (!Number.isFinite(item.startingPrice) || item.startingPrice < 0) {
+    errors.push("Starting price is missing or is not a valid non-negative number.");
+  }
+  if (!Number.isFinite(item.lockInPrice) || item.lockInPrice < 0) {
+    errors.push("Lock-in price is missing or is not a valid non-negative number.");
+  }
+  return errors;
+}
+
+function isNonnegativeNumber(value: string) {
+  if (!value.trim()) return false;
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) && numberValue >= 0;
 }

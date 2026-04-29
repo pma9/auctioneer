@@ -1,6 +1,6 @@
 export type AuctionStatus = "draft" | "active" | "closed";
 export type BidType = "regular" | "locked";
-export type ItemStatus = "open" | "locked" | "settled" | "removed";
+export type ItemStatus = "open" | "locked" | "settled" | "removed" | "invalid";
 
 export type Auction = {
   id: string;
@@ -27,6 +27,7 @@ export type AuctionItem = {
   finalPrice?: number;
   sourceSheetId?: string;
   sourceRow?: number;
+  importValidationErrors?: string[];
   updatedAt?: unknown;
   createdAt?: unknown;
 };

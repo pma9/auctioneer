@@ -18,6 +18,15 @@ type GuestRow = VerifiedGuest & {
   id: string;
 };
 
+type ImportSheetResponse = {
+  created: number;
+  updated: number;
+  total: number;
+  skipped?: number;
+  skippedRows?: { sourceRow: number; reason: string }[];
+  error?: string;
+};
+
 const emptyGuestForm = {
   displayName: "",
   phone: "",
@@ -62,11 +71,18 @@ export function AdminAuctionSettings({ auctionId }: Props) {
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({ sheetUrlOrId: sheetUrl }),
     });
-    const result = await response.json();
+    const result = (await response.json()) as ImportSheetResponse;
+    if (!response.ok) return setMessage(result.error ?? "Unable to import sheet.");
+
+    const skippedPreview = result.skippedRows
+      ?.slice(0, 5)
+      .map((row) => `row ${row.sourceRow}: ${row.reason}`)
+      .join("; ");
+    const skippedMessage = result.skipped
+      ? ` Skipped ${result.skipped} rows. ${skippedPreview ? `Reasons: ${skippedPreview}.` : ""}`
+      : "";
     setMessage(
-      response.ok
-        ? `Imported ${result.total} rows: ${result.created} new, ${result.updated} updated.`
-        : result.error,
+      `Imported ${result.total} rows: ${result.created} new, ${result.updated} updated.${skippedMessage}`,
     );
   }
 

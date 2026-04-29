@@ -17,7 +17,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const { sheetUrlOrId } = (await request.json()) as { sheetUrlOrId?: string };
     if (!sheetUrlOrId) return NextResponse.json({ error: "Sheet URL or ID is required." }, { status: 400 });
 
-    const { sheetId, items } = await readAuctionItemsFromSheet(sheetUrlOrId);
+    const { sheetId, items, skippedRows } = await readAuctionItemsFromSheet(sheetUrlOrId);
     const existingSnapshot = await adminDb.collection(`auctions/${auctionId}/items`).get();
     const existingByName = new Map(existingSnapshot.docs.map((doc) => [doc.get("normalizedName"), doc.ref]));
 
@@ -31,13 +31,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
       const lifecycleFields = existingRef
         ? {}
         : {
-            status: "open",
             createdAt: FieldValue.serverTimestamp(),
           };
       batch.set(
         ref,
         {
           ...item,
+          ...(!existingRef && !item.status ? { status: "open" } : {}),
           sourceSheetId: sheetId,
           ...lifecycleFields,
           updatedAt: FieldValue.serverTimestamp(),
@@ -52,7 +52,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     await batch.commit();
-    return NextResponse.json({ ok: true, created, updated, total: items.length });
+    return NextResponse.json({
+      ok: true,
+      created,
+      updated,
+      total: items.length,
+      skipped: skippedRows.length,
+      skippedRows,
+    });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unable to import sheet." },
