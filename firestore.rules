@@ -1,0 +1,80 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function phoneSignedIn() {
+      return signedIn() && request.auth.token.phone_number is string;
+    }
+
+    function isAdmin(auctionId) {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/auctions/$(auctionId)/admins/$(request.auth.uid));
+    }
+
+    function isGuest(auctionId) {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)/auctions/$(auctionId));
+    }
+
+    match /users/{uid} {
+      allow read, update: if signedIn() && request.auth.uid == uid;
+      allow create: if signedIn() && request.auth.uid == uid;
+
+      match /auctions/{auctionId} {
+        allow read: if signedIn() && request.auth.uid == uid;
+        allow write: if false;
+      }
+    }
+
+    match /auctions/{auctionId} {
+      allow read: if isAdmin(auctionId) ||
+        isGuest(auctionId) ||
+        (signedIn() && resource.data.createdBy == request.auth.uid);
+      allow create: if phoneSignedIn() && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isAdmin(auctionId);
+      allow delete: if false;
+
+      match /admins/{uid} {
+        allow read: if isAdmin(auctionId);
+        allow create: if phoneSignedIn() &&
+          request.auth.uid == uid &&
+          get(/databases/$(database)/documents/auctions/$(auctionId)).data.createdBy == request.auth.uid;
+        allow update, delete: if isAdmin(auctionId);
+      }
+
+      match /verifiedGuests/{phoneHash} {
+        allow read, write: if isAdmin(auctionId);
+      }
+
+      match /items/{itemId} {
+        allow read: if isAdmin(auctionId) || isGuest(auctionId);
+        allow create, update: if isAdmin(auctionId);
+        allow delete: if false;
+
+        match /bids/{uid} {
+          allow read: if isAdmin(auctionId) || (signedIn() && request.auth.uid == uid);
+          allow create, update: if signedIn() &&
+            request.auth.uid == uid &&
+            isGuest(auctionId) &&
+            request.resource.data.uid == request.auth.uid &&
+            request.resource.data.auctionId == auctionId &&
+            request.resource.data.itemId == itemId &&
+            request.resource.data.type == "regular" &&
+            get(/databases/$(database)/documents/auctions/$(auctionId)/items/$(itemId)).data.status == "open";
+          allow delete: if signedIn() &&
+            request.auth.uid == uid &&
+            resource.data.type == "regular";
+        }
+      }
+    }
+
+    match /{path=**}/bids/{bidId} {
+      allow read: if signedIn() &&
+        (resource.data.uid == request.auth.uid || isAdmin(resource.data.auctionId));
+    }
+  }
+}
