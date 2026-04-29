@@ -15,5 +15,12 @@ const firebaseConfig = {
 
 export const firebaseApp = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 export const auth = getAuth(firebaseApp);
+// if (
+//   process.env.NODE_ENV === "development" &&
+//   typeof window !== "undefined" &&
+//   ["localhost", "127.0.0.1", "0.0.0.0"].includes(window.location.hostname)
+// ) {
+//   auth.settings.appVerificationDisabledForTesting = true;
+// }
 export const db = getFirestore(firebaseApp);
 export { RecaptchaVerifier };

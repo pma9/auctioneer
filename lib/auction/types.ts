@@ -5,6 +5,7 @@ export type ItemStatus = "open" | "locked" | "settled" | "removed" | "invalid";
 export type Auction = {
   id: string;
   title: string;
+  adminDisplayName: string;
   status: AuctionStatus;
   createdBy: string;
   auctionNotes?: string;

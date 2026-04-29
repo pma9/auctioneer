@@ -15,7 +15,7 @@ export function LoginFlow() {
   const [code, setCode] = useState("");
   const [confirmation, setConfirmation] = useState<ConfirmationResult | null>(null);
   const [message, setMessage] = useState("");
-  const [displayName, setDisplayName] = useState("Guest");
+  const [smsRecipientPhone, setSmsRecipientPhone] = useState("");
 
   async function requestCode(event: FormEvent) {
     event.preventDefault();
@@ -32,7 +32,7 @@ export function LoginFlow() {
       return;
     }
 
-    setDisplayName(result.displayName);
+    setSmsRecipientPhone(result.normalizedPhone);
     recaptchaRef.current ??= new RecaptchaVerifier(auth, "guest-login-recaptcha", { size: "invisible" });
     const confirmationResult = await signInWithPhoneNumber(
       auth,
@@ -40,7 +40,6 @@ export function LoginFlow() {
       recaptchaRef.current,
     );
     setConfirmation(confirmationResult);
-    setMessage(`Code sent. Welcome, ${result.displayName}.`);
   }
 
   async function confirmCode(event: FormEvent) {
@@ -100,7 +99,7 @@ export function LoginFlow() {
           </form>
         ) : (
           <form className="mt-8 space-y-4" onSubmit={confirmCode}>
-            <p className="text-sm text-slate-600">Enter the code sent to {displayName}.</p>
+            <p className="text-sm text-slate-600">Enter the code sent to {smsRecipientPhone}.</p>
             <input
               className="input"
               placeholder="SMS code"

@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { ConfirmationResult, onAuthStateChanged, signInWithPhoneNumber, signOut, User } from "firebase/auth";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { normalizePhoneNumber, US_PHONE_PLACEHOLDER } from "@/lib/auction/phone-normalization";
@@ -13,8 +13,10 @@ export function AdminLogin() {
   const router = useRouter();
   const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const [adminDisplayName, setAdminDisplayName] = useState("");
   const [auctions, setAuctions] = useState<Auction[] | null>(null);
   const [phone, setPhone] = useState("");
+  const [sentPhone, setSentPhone] = useState("");
   const [code, setCode] = useState("");
   const [confirmation, setConfirmation] = useState<ConfirmationResult | null>(null);
   const [message, setMessage] = useState("");
@@ -31,8 +33,12 @@ export function AdminLogin() {
   useEffect(() => {
     if (!user) return;
 
+    const unsubProfile = onSnapshot(doc(db, `users/${user.uid}`), (snapshot) => {
+      setAdminDisplayName(snapshot.exists() ? String(snapshot.get("displayName") ?? "") : "");
+    });
+
     const createdAuctionsQuery = query(collection(db, "auctions"), where("createdBy", "==", user.uid));
-    return onSnapshot(
+    const unsubAuctions = onSnapshot(
       createdAuctionsQuery,
       (snapshot) => {
         setAuctions(
@@ -44,6 +50,10 @@ export function AdminLogin() {
         setAuctions([]);
       },
     );
+    return () => {
+      unsubProfile();
+      unsubAuctions();
+    };
   }, [user]);
 
   async function sendCode(event: FormEvent) {
@@ -54,8 +64,9 @@ export function AdminLogin() {
       recaptchaRef.current ??= new RecaptchaVerifier(auth, "admin-login-recaptcha", { size: "invisible" });
       const result = await signInWithPhoneNumber(auth, normalizedPhone, recaptchaRef.current);
       setConfirmation(result);
-      setMessage("Verification code sent.");
+      setSentPhone(normalizedPhone);
     } catch (error) {
+      resetRecaptcha();
       setMessage(error instanceof Error ? error.message : "Unable to send verification code.");
     }
   }
@@ -74,11 +85,19 @@ export function AdminLogin() {
 
   async function switchAccount() {
     setAuctions([]);
+    setAdminDisplayName("");
     await signOut(auth);
     setConfirmation(null);
     setCode("");
     setPhone("");
+    setSentPhone("");
     setMessage("");
+    resetRecaptcha();
+  }
+
+  function resetRecaptcha() {
+    recaptchaRef.current?.clear();
+    recaptchaRef.current = null;
   }
 
   return (
@@ -110,7 +129,6 @@ export function AdminLogin() {
             </form>
           ) : (
             <form className="mt-8 space-y-4" onSubmit={verifyCode}>
-              <label className="label">SMS code</label>
               <input
                 className="input"
                 placeholder="123456"
@@ -121,16 +139,21 @@ export function AdminLogin() {
               <button className="button w-full" type="submit">
                 Verify phone
               </button>
+              <p className="text-sm text-slate-600">Please enter the code sent to {sentPhone || phone}.</p>
             </form>
           )
         ) : (
           <div className="mt-8 space-y-5">
             <div className="flex flex-col gap-3 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
-              <span>Signed in as {user.phoneNumber}</span>
+              <span>Signed in as {adminDisplayName || user.phoneNumber}</span>
               <button className="font-semibold text-slate-950" onClick={switchAccount}>
-                Use a different phone
+                Logout
               </button>
             </div>
+
+            <Link className="button inline-flex w-full justify-center" href="/auctions/new">
+              Create new auction
+            </Link>
 
             {auctions === null ? (
               <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">Loading your auctions...</p>

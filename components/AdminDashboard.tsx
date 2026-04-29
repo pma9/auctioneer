@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { signOut } from "firebase/auth";
 import { motion } from "framer-motion";
 import {
   collection,
@@ -15,10 +16,11 @@ import {
   where,
 } from "firebase/firestore";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Pencil, Plus, RotateCcw, Settings, Trash2 } from "lucide-react";
 import { calculateVickreyBreakdown, formatCurrency, normalizeItemName } from "@/lib/auction/calculations";
 import type { Auction, AuctionItem, Bid } from "@/lib/auction/types";
-import { db } from "@/lib/firebase/client";
+import { auth, db } from "@/lib/firebase/client";
 import { useRequiredFirebaseUser } from "@/components/useRequiredFirebaseUser";
 
 type Props = {
@@ -37,6 +39,7 @@ type ItemForm = typeof emptyItemForm;
 type AdminTab = "current" | "all";
 
 export function AdminDashboard({ auctionId }: Props) {
+  const router = useRouter();
   const user = useRequiredFirebaseUser();
   const [auction, setAuction] = useState<Auction | null>(null);
   const [items, setItems] = useState<AuctionItem[]>([]);
@@ -149,6 +152,11 @@ export function AdminDashboard({ auctionId }: Props) {
     if (response.ok) setIsReopenModalOpen(false);
   }
 
+  async function logout() {
+    await signOut(auth);
+    router.replace("/");
+  }
+
   function openNewItemModal() {
     setEditingItem(null);
     setItemForm(emptyItemForm);
@@ -222,13 +230,6 @@ export function AdminDashboard({ auctionId }: Props) {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Link
-                className="button-light inline-flex"
-                href={`/auctions/${auctionId}/admin/settings`}
-                aria-label="Auction settings"
-              >
-                <Settings size={18} />
-              </Link>
               {auction?.status === "closed" ? (
                 <button className="button-light" onClick={() => setIsReopenModalOpen(true)}>
                   Re-open auction
@@ -238,9 +239,19 @@ export function AdminDashboard({ auctionId }: Props) {
                   className="rounded-full bg-red-600 px-5 py-3 font-bold text-white hover:bg-red-700"
                   onClick={() => setIsSettleModalOpen(true)}
                 >
-                  Close auction
+                  Close out
                 </button>
               )}
+              <Link
+                className="button-light inline-flex"
+                href={`/auctions/${auctionId}/admin/settings`}
+                aria-label="Auction settings"
+              >
+                <Settings size={18} />
+              </Link>
+              <button className="button-light" onClick={logout}>
+                Logout
+              </button>
             </div>
           </div>
         </header>

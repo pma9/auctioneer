@@ -1,6 +1,7 @@
 import { randomInt } from "crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
+import { hashPhoneNumber } from "@/lib/auction/phone";
 import { adminDb } from "@/lib/firebase/admin";
 import { requireUser } from "@/lib/firebase/server-auth";
 
@@ -18,11 +19,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { title } = (await request.json()) as { title?: string };
+    const { title, adminDisplayName } = (await request.json()) as {
+      title?: string;
+      adminDisplayName?: string;
+    };
     if (!title?.trim()) return NextResponse.json({ error: "Auction title is required." }, { status: 400 });
+    if (!adminDisplayName?.trim()) {
+      return NextResponse.json({ error: "Admin name is required." }, { status: 400 });
+    }
 
     const auctionId = await createAuctionWithShortCode({
       title: title.trim(),
+      adminDisplayName: adminDisplayName.trim(),
       uid: user.uid,
       phoneNumber: user.phone_number,
     });
@@ -38,13 +46,17 @@ export async function POST(request: NextRequest) {
 
 async function createAuctionWithShortCode({
   title,
+  adminDisplayName,
   uid,
   phoneNumber,
 }: {
   title: string;
+  adminDisplayName: string;
   uid: string;
   phoneNumber: string;
 }) {
+  const phoneHash = hashPhoneNumber(phoneNumber);
+
   for (let attempt = 0; attempt < AUCTION_CODE_RETRIES; attempt++) {
     const auctionId = generateAuctionCode();
     const auctionRef = adminDb.doc(`auctions/${auctionId}`);
@@ -54,18 +66,26 @@ async function createAuctionWithShortCode({
 
       transaction.create(auctionRef, {
         title,
+        adminDisplayName,
         status: "active",
         createdBy: uid,
         createdAt: FieldValue.serverTimestamp(),
       });
       transaction.set(adminDb.doc(`auctions/${auctionId}/admins/${uid}`), {
         uid,
-        displayName: phoneNumber,
+        displayName: adminDisplayName,
+        phoneHash,
+        normalizedPhone: phoneNumber,
         createdAt: FieldValue.serverTimestamp(),
       });
       transaction.set(
         adminDb.doc(`users/${uid}`),
-        { displayName: phoneNumber, updatedAt: FieldValue.serverTimestamp() },
+        {
+          displayName: adminDisplayName,
+          phoneHash,
+          normalizedPhone: phoneNumber,
+          updatedAt: FieldValue.serverTimestamp(),
+        },
         { merge: true },
       );
 

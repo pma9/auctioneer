@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { onAuthStateChanged, User } from "firebase/auth";
+import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import {
   collection,
   collectionGroup,
@@ -15,6 +15,7 @@ import {
   where,
 } from "firebase/firestore";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AuctionRulesModal } from "@/components/AuctionRulesModal";
 import { calculateFinancialSummary, formatCurrency } from "@/lib/auction/calculations";
 import type { Auction, AuctionItem, Bid } from "@/lib/auction/types";
@@ -37,8 +38,10 @@ type Settlement = {
 };
 
 export function GuestDashboard({ auctionId }: Props) {
+  const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [auction, setAuction] = useState<Auction | null>(null);
+  const [guestProfile, setGuestProfile] = useState<{ uid: string; displayName: string } | null>(null);
   const [items, setItems] = useState<AuctionItem[]>([]);
   const [myBids, setMyBids] = useState<Bid[]>([]);
   const [activeTab, setActiveTab] = useState<"auction" | "bids">("auction");
@@ -74,6 +77,17 @@ export function GuestDashboard({ auctionId }: Props) {
       query(collectionGroup(db, "bids"), where("auctionId", "==", auctionId), where("uid", "==", user.uid)),
       (snapshot) => setMyBids(snapshot.docs.map((bidDoc) => ({ id: bidDoc.id, ...bidDoc.data() }) as Bid)),
     );
+  }, [auctionId, user]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    return onSnapshot(doc(db, `users/${user.uid}/auctions/${auctionId}`), (snapshot) => {
+      setGuestProfile({
+        uid: user.uid,
+        displayName: snapshot.exists() ? String(snapshot.get("displayName") ?? "") : "",
+      });
+    });
   }, [auctionId, user]);
 
   const isAuctionActive = auction?.status === "active";
@@ -125,6 +139,11 @@ export function GuestDashboard({ auctionId }: Props) {
       setBidError(`Bid must be at least ${formatCurrency(selectedItem.startingPrice)}.`);
       return;
     }
+    const bidderName = guestProfile?.uid === user.uid ? guestProfile.displayName.trim() : "";
+    if (!bidderName) {
+      setBidError("Guest profile is still loading. Please try again.");
+      return;
+    }
 
     await setDoc(
       doc(db, `auctions/${auctionId}/items/${selectedItem.id}/bids/${user.uid}`),
@@ -132,7 +151,7 @@ export function GuestDashboard({ auctionId }: Props) {
         auctionId,
         itemId: selectedItem.id,
         uid: user.uid,
-        bidderName: user.displayName || user.phoneNumber || "Guest",
+        bidderName,
         amount,
         type: "regular",
         updatedAt: serverTimestamp(),
@@ -220,6 +239,11 @@ export function GuestDashboard({ auctionId }: Props) {
     await deleteDoc(doc(db, `auctions/${auctionId}/items/${bid.itemId}/bids/${bid.uid}`));
   }
 
+  async function logout() {
+    await signOut(auth);
+    router.replace("/");
+  }
+
   if (!user) {
     return (
       <div className="flex min-h-screen items-center justify-center px-6">
@@ -242,12 +266,19 @@ export function GuestDashboard({ auctionId }: Props) {
             {isAuctionClosed ? "Auction Closed" : "Guest Dashboard"}
           </p>
           <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <h1 className="text-3xl font-bold">{auction?.title ?? "Auction"}</h1>
-            <AuctionRulesModal
-              className="button-light inline-flex w-full text-lg sm:w-auto lg:shrink-0"
-              label="Help"
-              trigger="button"
-            />
+            <h1 className="text-3xl font-bold">
+              {auction ? `${auction.title} hosted by ${auction.adminDisplayName}` : "Auction"}
+            </h1>
+            <div className="flex flex-col gap-2 sm:flex-row lg:shrink-0">
+              <AuctionRulesModal
+                className="button-light inline-flex w-full text-lg sm:w-auto"
+                label="Help"
+                trigger="button"
+              />
+              <button className="button-light w-full text-lg sm:w-auto" onClick={logout}>
+                Logout
+              </button>
+            </div>
           </div>
           {!isAuctionClosed && auction?.auctionNotes && (
             <p className="mt-4 max-w-3xl whitespace-pre-wrap text-sm leading-6 text-slate-200">

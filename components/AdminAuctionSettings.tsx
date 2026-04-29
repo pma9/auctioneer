@@ -42,6 +42,7 @@ export function AdminAuctionSettings({ auctionId }: Props) {
   const [auction, setAuction] = useState<Auction | null>(null);
   const [guests, setGuests] = useState<GuestRow[]>([]);
   const [sheetUrl, setSheetUrl] = useState("");
+  const [title, setTitle] = useState("");
   const [notesForm, setNotesForm] = useState(emptyNotesForm);
   const [guestForm, setGuestForm] = useState(emptyGuestForm);
   const [editingGuest, setEditingGuest] = useState<GuestRow | null>(null);
@@ -53,6 +54,7 @@ export function AdminAuctionSettings({ auctionId }: Props) {
     const unsubAuction = onSnapshot(doc(db, `auctions/${auctionId}`), (snapshot) => {
       const nextAuction = snapshot.exists() ? ({ id: snapshot.id, ...snapshot.data() } as Auction) : null;
       setAuction(nextAuction);
+      setTitle(nextAuction?.title ?? "");
       setNotesForm({
         auctionNotes: nextAuction?.auctionNotes ?? "",
         closingNotes: nextAuction?.closingNotes ?? "",
@@ -95,6 +97,17 @@ export function AdminAuctionSettings({ auctionId }: Props) {
     setMessage(
       `Imported ${result.total} rows: ${result.created} new, ${result.updated} updated.${skippedMessage}`,
     );
+  }
+
+  async function saveAuctionTitle(event: FormEvent) {
+    event.preventDefault();
+    if (!title.trim()) return setMessage("Auction name is required.");
+
+    await updateDoc(doc(db, `auctions/${auctionId}`), {
+      title: title.trim(),
+      updatedAt: serverTimestamp(),
+    });
+    setMessage("Auction name updated.");
   }
 
   async function saveAuctionNotes(event: FormEvent) {
@@ -175,6 +188,24 @@ export function AdminAuctionSettings({ auctionId }: Props) {
         </header>
 
         {message && <p className="rounded-2xl bg-amber-50 p-3 text-sm text-amber-800">{message}</p>}
+
+        <motion.form layout className="card space-y-4" onSubmit={saveAuctionTitle}>
+          <div>
+            <h2 className="font-semibold">Auction name</h2>
+            <p className="mt-1 text-sm text-slate-600">Change the title shown to admins and guests.</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+            <input
+              className="input"
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              required
+            />
+            <button className="button" type="submit">
+              Change name
+            </button>
+          </div>
+        </motion.form>
 
         <motion.form layout className="card space-y-4" onSubmit={saveAuctionNotes}>
           <div>
