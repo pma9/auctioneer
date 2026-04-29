@@ -2,10 +2,9 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { ConfirmationResult, onAuthStateChanged, signInWithPhoneNumber, User } from "firebase/auth";
-import { collection, doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import { normalizePhoneNumber, US_PHONE_PLACEHOLDER } from "@/lib/auction/phone-normalization";
-import { auth, db, RecaptchaVerifier } from "@/lib/firebase/client";
+import { auth, RecaptchaVerifier } from "@/lib/firebase/client";
 
 export function CreateAuction() {
   const router = useRouter();
@@ -50,24 +49,20 @@ export function CreateAuction() {
       return;
     }
 
-    const auctionRef = doc(collection(db, "auctions"));
-    await setDoc(auctionRef, {
-      title,
-      status: "active",
-      createdBy: currentUser.uid,
-      createdAt: serverTimestamp(),
-    });
-    await setDoc(doc(db, `auctions/${auctionRef.id}/admins/${currentUser.uid}`), {
-      uid: currentUser.uid,
-      displayName: currentUser.phoneNumber ?? "Auction admin",
-      createdAt: serverTimestamp(),
-    });
-    await setDoc(
-      doc(db, `users/${currentUser.uid}`),
-      { displayName: currentUser.phoneNumber ?? "Auction admin", updatedAt: serverTimestamp() },
-      { merge: true },
-    );
-    router.push(`/auctions/${auctionRef.id}/admin`);
+    try {
+      const token = await currentUser.getIdToken();
+      const response = await fetch("/api/auctions", {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error);
+      const auctionId = result.auctionId as string;
+      router.push(`/auctions/${auctionId}/admin`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to create auction.");
+    }
   }
 
   return (

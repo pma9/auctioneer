@@ -45,6 +45,15 @@ export async function POST(request: NextRequest, context: RouteContext) {
       },
       { merge: true },
     );
+    batch.set(
+      guestDoc.ref,
+      {
+        joinedUid: user.uid,
+        normalizedPhone: user.phone_number,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
     await batch.commit();
 
     return NextResponse.json({ ok: true, displayName });
