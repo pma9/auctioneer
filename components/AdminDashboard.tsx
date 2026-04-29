@@ -75,17 +75,18 @@ export function AdminDashboard({ auctionId }: Props) {
     const bidsByItem = new Map<string, Bid[]>();
     bids.forEach((bid) => bidsByItem.set(bid.itemId, [...(bidsByItem.get(bid.itemId) ?? []), bid]));
     const activeItems = items.filter((item) => item.status === "open" || item.status === "locked");
-    const invalidItems = items.filter((item) => item.status === "invalid");
     const rows = activeItems.map((item) => calculateVickreyBreakdown(item, bidsByItem.get(item.id) ?? []));
     const rowsByItemId = new Map(rows.map((row) => [row.item.id, row]));
     return {
       rows,
       rowsByItemId,
-      activeItems,
-      invalidItems,
       currentRows: rows.filter((row) => row.topBid),
       revenue: rows.reduce((sum, row) => sum + row.revenue, 0),
       totalBids: bids.length,
+      totalItems: items.length,
+      invalidItems: items.filter((item) => item.status === "invalid").length,
+      itemsWithBids: items.filter((item) => bidsByItem.has(item.id)).length,
+      lockedInBids: bids.filter((bid) => bid.type === "locked").length,
     };
   }, [bids, items]);
 
@@ -249,8 +250,8 @@ export function AdminDashboard({ auctionId }: Props) {
         <section className="grid gap-4 md:grid-cols-4">
           <Stat label="Real-time revenue" value={formatCurrency(analytics.revenue)} />
           <Stat label="Total bids" value={String(analytics.totalBids)} />
-          <Stat label="Items" value={String(analytics.activeItems.length)} />
-          <Stat label="Invalid items" value={String(analytics.invalidItems.length)} />
+          <Stat label="Items with bid" value={String(analytics.itemsWithBids)} />
+          <Stat label="Locked-in bids" value={String(analytics.lockedInBids)} />
         </section>
 
         <section className="space-y-4">
@@ -302,24 +303,30 @@ export function AdminDashboard({ auctionId }: Props) {
             </section>
           ) : (
             <section className="card space-y-4 overflow-hidden">
-              <div className="flex flex-wrap gap-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
-                  <input
-                    id="show-invalid-items"
-                    type="checkbox"
-                    checked={showInvalidItems}
-                    onChange={(event) => setShowInvalidItems(event.target.checked)}
-                  />
-                  <label htmlFor="show-invalid-items">Show invalid</label>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-wrap gap-4">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
+                    <input
+                      id="show-invalid-items"
+                      type="checkbox"
+                      checked={showInvalidItems}
+                      onChange={(event) => setShowInvalidItems(event.target.checked)}
+                    />
+                    <label htmlFor="show-invalid-items">Show invalid</label>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
+                    <input
+                      id="show-removed-items"
+                      type="checkbox"
+                      checked={showRemovedItems}
+                      onChange={(event) => setShowRemovedItems(event.target.checked)}
+                    />
+                    <label htmlFor="show-removed-items">Show removed</label>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
-                  <input
-                    id="show-removed-items"
-                    type="checkbox"
-                    checked={showRemovedItems}
-                    onChange={(event) => setShowRemovedItems(event.target.checked)}
-                  />
-                  <label htmlFor="show-removed-items">Show removed</label>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm font-semibold text-slate-600">
+                  <span>Total item count: {analytics.totalItems}</span>
+                  <span>Invalid item count: {analytics.invalidItems}</span>
                 </div>
               </div>
               <div className="overflow-x-auto">
