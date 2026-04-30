@@ -7,6 +7,7 @@ import { collection, collectionGroup, doc, onSnapshot, query, where } from "fire
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AuctionRulesModal } from "@/components/AuctionRulesModal";
+import { toast } from "sonner";
 import { isWholeDollarBid, maxAllowedBidForItem } from "@/lib/auction/bid-limits";
 import { calculateFinancialSummary, formatCurrency } from "@/lib/auction/calculations";
 import type { Auction, AuctionItem, Bid } from "@/lib/auction/types";
@@ -44,7 +45,6 @@ export function GuestDashboard({ auctionId }: Props) {
   const [bidError, setBidError] = useState("");
   const [pendingLockIn, setPendingLockIn] = useState<LockInRequest | null>(null);
   const [isLockingIn, setIsLockingIn] = useState(false);
-  const [message, setMessage] = useState("");
 
   useEffect(() => onAuthStateChanged(auth, setUser), []);
 
@@ -154,24 +154,24 @@ export function GuestDashboard({ auctionId }: Props) {
     if (!isAuctionOpen) {
       const error = biddingUnavailableMessage;
       if (errorTarget === "dialog") setBidError(error);
-      else setMessage(error);
+      else toast(error);
       return;
     }
     if (!Number.isFinite(amount)) {
       const error = "Enter a valid bid amount.";
       if (errorTarget === "dialog") setBidError(error);
-      else setMessage(error);
+      else toast(error);
       return;
     }
     const amountError = bidAmountErrorForItem(item, amount, item.lockInPrice, "Lock-in bid");
     if (amountError) {
       if (errorTarget === "dialog") setBidError(amountError);
-      else setMessage(amountError);
+      else toast(amountError);
       return;
     }
 
     if (errorTarget === "dialog") setBidError("");
-    else setMessage("");
+    else toast.dismiss();
     setPendingLockIn({ item, amount, errorTarget });
   }
 
@@ -188,7 +188,7 @@ export function GuestDashboard({ auctionId }: Props) {
     if (!token) {
       const error = "Sign in first.";
       if (errorTarget === "dialog") setBidError(error);
-      else setMessage(error);
+      else toast(error);
       return false;
     }
     const response = await fetch(`/api/auctions/${auctionId}/lock-in`, {
@@ -203,11 +203,11 @@ export function GuestDashboard({ auctionId }: Props) {
     if (!response.ok) {
       const error = result.error ?? "Unable to lock in item.";
       if (errorTarget === "dialog") setBidError(error);
-      else setMessage(error);
+      else toast(error);
       return false;
     }
 
-    setMessage("Locked in. You won this item immediately.");
+    toast("Locked in. You won this item immediately.");
     if (errorTarget === "dialog") {
       setSelectedItem(null);
       setBidAmount("");
@@ -218,14 +218,14 @@ export function GuestDashboard({ auctionId }: Props) {
 
   async function removeBid(bid: Bid) {
     if (!isAuctionOpen) {
-      setMessage(biddingUnavailableMessage);
+      toast(biddingUnavailableMessage);
       return;
     }
     if (bid.type === "locked") return;
 
     const token = await user?.getIdToken();
     if (!token) {
-      setMessage("Sign in first.");
+      toast("Sign in first.");
       return;
     }
     const response = await fetch(`/api/auctions/${auctionId}/bids`, {
@@ -234,7 +234,7 @@ export function GuestDashboard({ auctionId }: Props) {
       body: JSON.stringify({ itemId: bid.itemId }),
     });
     const result = await response.json();
-    if (!response.ok) setMessage(result.error ?? "Unable to remove bid.");
+    if (!response.ok) toast(result.error ?? "Unable to remove bid.");
   }
 
   async function logout() {
@@ -358,8 +358,6 @@ export function GuestDashboard({ auctionId }: Props) {
             </div>
           </>
         )}
-
-        {message && <p className="rounded-2xl bg-amber-50 p-3 text-sm text-amber-800">{message}</p>}
 
         {isAuctionClosed ? (
           <ClosedSettlement settlement={settlement} />

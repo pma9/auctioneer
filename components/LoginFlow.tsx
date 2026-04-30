@@ -3,6 +3,7 @@
 import { FormEvent, useRef, useState } from "react";
 import { ConfirmationResult, signInWithPhoneNumber } from "firebase/auth";
 import { useRouter, useSearchParams } from "next/navigation";
+import { toast } from "sonner";
 import { US_PHONE_PLACEHOLDER } from "@/lib/auction/phone-normalization";
 import { auth, RecaptchaVerifier } from "@/lib/firebase/client";
 
@@ -14,12 +15,11 @@ export function LoginFlow() {
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [confirmation, setConfirmation] = useState<ConfirmationResult | null>(null);
-  const [message, setMessage] = useState("");
   const [smsRecipientPhone, setSmsRecipientPhone] = useState("");
 
   async function requestCode(event: FormEvent) {
     event.preventDefault();
-    setMessage("");
+    toast.dismiss();
 
     const response = await fetch(`/api/auctions/${auctionId}/verify-guest`, {
       method: "POST",
@@ -28,7 +28,7 @@ export function LoginFlow() {
     });
     const result = await response.json();
     if (!response.ok) {
-      setMessage(result.error ?? "Phone number is not verified for this auction.");
+      toast(result.error ?? "Phone number is not verified for this auction.");
       return;
     }
 
@@ -56,7 +56,7 @@ export function LoginFlow() {
     });
     const result = await response.json();
     if (!response.ok) {
-      setMessage(result.error ?? "Could not join auction.");
+      toast(result.error ?? "Could not join auction.");
       return;
     }
 
@@ -114,7 +114,6 @@ export function LoginFlow() {
         )}
 
         <div id="guest-login-recaptcha" />
-        {message && <p className="mt-4 rounded-2xl bg-amber-50 p-3 text-sm text-amber-800">{message}</p>}
       </div>
     </div>
   );

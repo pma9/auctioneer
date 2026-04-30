@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { collection, doc, onSnapshot, serverTimestamp, updateDoc, writeBatch } from "firebase/firestore";
 import Link from "next/link";
 import { ArrowLeft, Copy, Pencil, Sheet, Trash2, UserPlus } from "lucide-react";
+import { toast } from "sonner";
 import { US_PHONE_PLACEHOLDER } from "@/lib/auction/phone-normalization";
 import type { Auction, VerifiedGuest } from "@/lib/auction/types";
 import { db } from "@/lib/firebase/client";
@@ -51,7 +52,6 @@ export function AdminAuctionSettings({ auctionId }: Props) {
   const [notesForm, setNotesForm] = useState(emptyNotesForm);
   const [guestForm, setGuestForm] = useState(emptyGuestForm);
   const [editingGuest, setEditingGuest] = useState<GuestRow | null>(null);
-  const [message, setMessage] = useState("");
 
   useEffect(() => {
     if (!user) return;
@@ -84,14 +84,14 @@ export function AdminAuctionSettings({ auctionId }: Props) {
   async function importSheet(event: FormEvent) {
     event.preventDefault();
     const token = await user?.getIdToken();
-    if (!token) return setMessage("Sign in as an auction admin first.");
+    if (!token) return toast("Sign in as an auction admin first.");
     const response = await fetch(`/api/auctions/${auctionId}/import-sheet`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({ sheetUrlOrId: sheetUrl }),
     });
     const result = (await response.json()) as ImportSheetResponse;
-    if (!response.ok) return setMessage(result.error ?? "Unable to import sheet.");
+    if (!response.ok) return toast(result.error ?? "Unable to import sheet.");
 
     const skippedPreview = result.skippedRows
       ?.slice(0, 5)
@@ -100,27 +100,27 @@ export function AdminAuctionSettings({ auctionId }: Props) {
     const skippedMessage = result.skipped
       ? ` Skipped ${result.skipped} rows. ${skippedPreview ? `Reasons: ${skippedPreview}.` : ""}`
       : "";
-    setMessage(
+    toast(
       `Imported ${result.total} rows: ${result.created} new, ${result.updated} updated.${skippedMessage}`,
     );
   }
 
   async function saveAuctionTitle(event: FormEvent) {
     event.preventDefault();
-    if (!title.trim()) return setMessage("Auction name is required.");
+    if (!title.trim()) return toast("Auction name is required.");
 
     await updateDoc(doc(db, `auctions/${auctionId}`), {
       title: title.trim(),
       updatedAt: serverTimestamp(),
     });
-    setMessage("Auction name updated.");
+    toast("Auction name updated.");
   }
 
   async function saveAdminDisplayName(event: FormEvent) {
     event.preventDefault();
-    if (!user) return setMessage("Sign in as an auction admin first.");
+    if (!user) return toast("Sign in as an auction admin first.");
     const displayName = adminDisplayName.trim();
-    if (!displayName) return setMessage("Admin name is required.");
+    if (!displayName) return toast("Admin name is required.");
 
     const batch = writeBatch(db);
     batch.update(doc(db, `auctions/${auctionId}`), {
@@ -137,7 +137,7 @@ export function AdminAuctionSettings({ auctionId }: Props) {
     );
     batch.set(doc(db, `users/${user.uid}`), { displayName }, { merge: true });
     await batch.commit();
-    setMessage("Admin name updated.");
+    toast("Admin name updated.");
   }
 
   async function saveAuctionNotes(event: FormEvent) {
@@ -147,13 +147,13 @@ export function AdminAuctionSettings({ auctionId }: Props) {
       closingNotes: notesForm.closingNotes.trim(),
       updatedAt: serverTimestamp(),
     });
-    setMessage("Auction notes saved.");
+    toast("Auction notes saved.");
   }
 
   async function saveGuest(event: FormEvent) {
     event.preventDefault();
     const token = await user?.getIdToken();
-    if (!token) return setMessage("Sign in as an auction admin first.");
+    if (!token) return toast("Sign in as an auction admin first.");
 
     const response = await fetch(`/api/auctions/${auctionId}/guests`, {
       method: editingGuest ? "PATCH" : "POST",
@@ -165,7 +165,7 @@ export function AdminAuctionSettings({ auctionId }: Props) {
       }),
     });
     const result = await response.json();
-    setMessage(response.ok ? (editingGuest ? "Guest updated." : "Guest added.") : result.error);
+    toast(response.ok ? (editingGuest ? "Guest updated." : "Guest added.") : result.error);
     if (response.ok) resetGuestForm();
   }
 
@@ -174,14 +174,14 @@ export function AdminAuctionSettings({ auctionId }: Props) {
     if (!confirmed) return;
 
     const token = await user?.getIdToken();
-    if (!token) return setMessage("Sign in as an auction admin first.");
+    if (!token) return toast("Sign in as an auction admin first.");
     const response = await fetch(`/api/auctions/${auctionId}/guests`, {
       method: "DELETE",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({ phoneHash: guest.phoneHash }),
     });
     const result = await response.json();
-    setMessage(response.ok ? "Guest removed." : result.error);
+    toast(response.ok ? "Guest removed." : result.error);
   }
 
   async function copyGuestLoginLink() {
@@ -190,9 +190,9 @@ export function AdminAuctionSettings({ auctionId }: Props) {
 
     try {
       await navigator.clipboard.writeText(guestLoginUrl.toString());
-      setMessage("Guest login link copied.");
+      toast("Guest login link copied.");
     } catch {
-      setMessage("Could not copy guest login link.");
+      toast("Could not copy guest login link.");
     }
   }
 
@@ -239,8 +239,6 @@ export function AdminAuctionSettings({ auctionId }: Props) {
             </button>
           </div>
         </header>
-
-        {message && <p className="rounded-2xl bg-amber-50 p-3 text-sm text-amber-800">{message}</p>}
 
         <div className="grid gap-6 lg:grid-cols-2">
           <motion.form layout className="card space-y-4" onSubmit={saveAuctionTitle}>

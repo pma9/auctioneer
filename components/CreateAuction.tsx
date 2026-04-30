@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { ConfirmationResult, onAuthStateChanged, signInWithPhoneNumber, signOut, User } from "firebase/auth";
 import { doc, onSnapshot } from "firebase/firestore";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { normalizePhoneNumber, US_PHONE_PLACEHOLDER } from "@/lib/auction/phone-normalization";
 import { auth, db, RecaptchaVerifier } from "@/lib/firebase/client";
 
@@ -20,7 +21,6 @@ export function CreateAuction() {
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [confirmation, setConfirmation] = useState<ConfirmationResult | null>(null);
-  const [message, setMessage] = useState("");
 
   useEffect(() => onAuthStateChanged(auth, setUser), []);
 
@@ -42,14 +42,14 @@ export function CreateAuction() {
 
   async function sendCode(event: FormEvent) {
     event.preventDefault();
-    setMessage("");
+    toast.dismiss();
     try {
       const normalizedPhone = normalizePhoneNumber(phone);
       recaptchaRef.current ??= new RecaptchaVerifier(auth, "new-auction-recaptcha", { size: "invisible" });
       const result = await signInWithPhoneNumber(auth, normalizedPhone, recaptchaRef.current);
       setConfirmation(result);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to send verification code.");
+      toast(error instanceof Error ? error.message : "Unable to send verification code.");
     }
   }
 
@@ -57,23 +57,23 @@ export function CreateAuction() {
     event.preventDefault();
     if (!confirmation) return;
     await confirmation.confirm(code);
-    setMessage("Signed in. You can create an auction now.");
+    toast("Signed in. You can create an auction now.");
   }
 
   async function createAuction(event: FormEvent) {
     event.preventDefault();
     const currentUser = auth.currentUser;
     if (!currentUser) {
-      setMessage("Sign in with phone first.");
+      toast("Sign in with phone first.");
       return;
     }
     if (!currentUser.phoneNumber) {
-      setMessage("Admins must sign in with a phone number to create auctions.");
+      toast("Admins must sign in with a phone number to create auctions.");
       return;
     }
     const submittedAdminDisplayName = (adminDisplayName || adminDisplayNameDraft).trim();
     if (!submittedAdminDisplayName) {
-      setMessage("Admin name is required.");
+      toast("Admin name is required.");
       return;
     }
     const auctionTitle = title.trim() || DEFAULT_AUCTION_TITLE;
@@ -91,7 +91,7 @@ export function CreateAuction() {
       const auctionId = result.auctionId as string;
       router.push(`/auctions/${auctionId}/admin`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to create auction.");
+      toast(error instanceof Error ? error.message : "Unable to create auction.");
     }
   }
 
@@ -100,7 +100,7 @@ export function CreateAuction() {
     setPhone("");
     setCode("");
     setConfirmation(null);
-    setMessage("");
+    toast.dismiss();
     router.replace("/");
   }
 
@@ -180,8 +180,6 @@ export function CreateAuction() {
             </button>
           </form>
         )}
-
-        {message && <p className="mt-4 rounded-2xl bg-amber-50 p-3 text-sm text-amber-800">{message}</p>}
       </div>
     </div>
   );

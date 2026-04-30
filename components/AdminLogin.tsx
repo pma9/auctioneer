@@ -5,6 +5,7 @@ import { ConfirmationResult, onAuthStateChanged, signInWithPhoneNumber, signOut,
 import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { normalizePhoneNumber, US_PHONE_PLACEHOLDER } from "@/lib/auction/phone-normalization";
 import type { Auction } from "@/lib/auction/types";
 import { auth, db, RecaptchaVerifier } from "@/lib/firebase/client";
@@ -19,7 +20,6 @@ export function AdminLogin() {
   const [sentPhone, setSentPhone] = useState("");
   const [code, setCode] = useState("");
   const [confirmation, setConfirmation] = useState<ConfirmationResult | null>(null);
-  const [message, setMessage] = useState("");
 
   useEffect(
     () =>
@@ -46,7 +46,7 @@ export function AdminLogin() {
         );
       },
       (error) => {
-        setMessage(error.message);
+        toast(error.message);
         setAuctions([]);
       },
     );
@@ -58,7 +58,7 @@ export function AdminLogin() {
 
   async function sendCode(event: FormEvent) {
     event.preventDefault();
-    setMessage("");
+    toast.dismiss();
     try {
       const normalizedPhone = normalizePhoneNumber(phone);
       recaptchaRef.current ??= new RecaptchaVerifier(auth, "admin-login-recaptcha", { size: "invisible" });
@@ -67,7 +67,7 @@ export function AdminLogin() {
       setSentPhone(normalizedPhone);
     } catch (error) {
       resetRecaptcha();
-      setMessage(error instanceof Error ? error.message : "Unable to send verification code.");
+      toast(error instanceof Error ? error.message : "Unable to send verification code.");
     }
   }
 
@@ -77,10 +77,10 @@ export function AdminLogin() {
     const credential = await confirmation.confirm(code);
     if (!credential.user.phoneNumber) {
       await signOut(auth);
-      setMessage("Admin login requires phone authentication.");
+      toast("Admin login requires phone authentication.");
       return;
     }
-    setMessage("Signed in. Choose an auction to manage.");
+    toast("Signed in. Choose an auction to manage.");
   }
 
   async function switchAccount() {
@@ -91,7 +91,7 @@ export function AdminLogin() {
     setCode("");
     setPhone("");
     setSentPhone("");
-    setMessage("");
+    toast.dismiss();
     resetRecaptcha();
   }
 
@@ -184,7 +184,6 @@ export function AdminLogin() {
         )}
 
         <div id="admin-login-recaptcha" />
-        {message && <p className="mt-4 rounded-2xl bg-amber-50 p-3 text-sm text-amber-800">{message}</p>}
       </div>
     </div>
   );

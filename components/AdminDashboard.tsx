@@ -18,6 +18,7 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Copy, Pencil, Plus, RotateCcw, Settings, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { calculateVickreyBreakdown, formatCurrency, normalizeItemName } from "@/lib/auction/calculations";
 import type { Auction, AuctionItem, Bid } from "@/lib/auction/types";
 import { auth, db } from "@/lib/firebase/client";
@@ -53,7 +54,6 @@ export function AdminDashboard({ auctionId }: Props) {
   const [isOpenModalOpen, setIsOpenModalOpen] = useState(false);
   const [isSettleModalOpen, setIsSettleModalOpen] = useState(false);
   const [isReopenModalOpen, setIsReopenModalOpen] = useState(false);
-  const [message, setMessage] = useState("");
 
   useEffect(() => {
     if (!user) return;
@@ -97,7 +97,7 @@ export function AdminDashboard({ auctionId }: Props) {
   async function saveItem(event: FormEvent) {
     event.preventDefault();
     if (!hasValidItemForm(itemForm)) {
-      setMessage("Item name, starting price, and lock-in price are required.");
+      toast("Item name, starting price, and lock-in price are required.");
       return;
     }
 
@@ -131,37 +131,37 @@ export function AdminDashboard({ auctionId }: Props) {
 
   async function settleAuction() {
     const token = await user?.getIdToken();
-    if (!token) return setMessage("Sign in as an auction admin first.");
+    if (!token) return toast("Sign in as an auction admin first.");
     const response = await fetch(`/api/auctions/${auctionId}/settle`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}` },
     });
     const result = await response.json();
-    setMessage(response.ok ? "Auction settled." : result.error);
+    toast(response.ok ? "Auction settled." : result.error);
     if (response.ok) setIsSettleModalOpen(false);
   }
 
   async function openAuction() {
     const token = await user?.getIdToken();
-    if (!token) return setMessage("Sign in as an auction admin first.");
+    if (!token) return toast("Sign in as an auction admin first.");
     const response = await fetch(`/api/auctions/${auctionId}/open`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}` },
     });
     const result = await response.json();
-    setMessage(response.ok ? "Auction opened." : result.error);
+    toast(response.ok ? "Auction opened." : result.error);
     if (response.ok) setIsOpenModalOpen(false);
   }
 
   async function reopenAuction() {
     const token = await user?.getIdToken();
-    if (!token) return setMessage("Sign in as an auction admin first.");
+    if (!token) return toast("Sign in as an auction admin first.");
     const response = await fetch(`/api/auctions/${auctionId}/reopen`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}` },
     });
     const result = await response.json();
-    setMessage(response.ok ? "Auction re-opened." : result.error);
+    toast(response.ok ? "Auction re-opened." : result.error);
     if (response.ok) setIsReopenModalOpen(false);
   }
 
@@ -171,9 +171,9 @@ export function AdminDashboard({ auctionId }: Props) {
 
     try {
       await navigator.clipboard.writeText(guestLoginUrl.toString());
-      setMessage("Guest login link copied.");
+      toast("Guest login link copied.");
     } catch {
-      setMessage("Could not copy guest login link.");
+      toast("Could not copy guest login link.");
     }
   }
 
@@ -295,8 +295,6 @@ export function AdminDashboard({ auctionId }: Props) {
             </div>
           </div>
         </header>
-
-        {message && <p className="rounded-2xl bg-amber-50 p-3 text-sm text-amber-800">{message}</p>}
 
         <section className="grid gap-4 md:grid-cols-4">
           <Stat label="Real-time revenue" value={formatCurrency(analytics.revenue)} />
