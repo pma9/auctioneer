@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { collection, doc, onSnapshot, serverTimestamp, updateDoc, writeBatch } from "firebase/firestore";
 import Link from "next/link";
-import { ArrowLeft, Pencil, Sheet, Trash2, UserPlus } from "lucide-react";
+import { ArrowLeft, Copy, Pencil, Sheet, Trash2, UserPlus } from "lucide-react";
 import { US_PHONE_PLACEHOLDER } from "@/lib/auction/phone-normalization";
 import type { Auction, VerifiedGuest } from "@/lib/auction/types";
 import { db } from "@/lib/firebase/client";
@@ -180,6 +180,18 @@ export function AdminAuctionSettings({ auctionId }: Props) {
     setMessage(response.ok ? "Guest removed." : result.error);
   }
 
+  async function copyGuestLoginLink() {
+    const guestLoginUrl = new URL("/", window.location.origin);
+    guestLoginUrl.searchParams.set("auctionId", auctionId);
+
+    try {
+      await navigator.clipboard.writeText(guestLoginUrl.toString());
+      setMessage("Guest login link copied.");
+    } catch {
+      setMessage("Could not copy guest login link.");
+    }
+  }
+
   function editGuest(guest: GuestRow) {
     setEditingGuest(guest);
     setGuestForm({
@@ -210,7 +222,18 @@ export function AdminAuctionSettings({ auctionId }: Props) {
             Auction Settings
           </p>
           <h1 className="mt-3 wrap-break-word text-3xl font-bold">{auction?.title ?? "Auction"}</h1>
-          <p className="mt-1 text-sm text-slate-300">Auction ID: {auctionId}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-1 text-sm text-slate-300">
+            <span>Auction ID: {auctionId}</span>
+            <button
+              className="inline-flex rounded-full p-1 text-slate-300 transition hover:bg-white/10 hover:text-white"
+              type="button"
+              onClick={copyGuestLoginLink}
+              aria-label="Copy guest login link"
+              title="Copy guest login link"
+            >
+              <Copy size={14} />
+            </button>
+          </div>
         </header>
 
         {message && <p className="rounded-2xl bg-amber-50 p-3 text-sm text-amber-800">{message}</p>}

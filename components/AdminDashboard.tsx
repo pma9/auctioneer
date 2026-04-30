@@ -17,7 +17,7 @@ import {
 } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Pencil, Plus, RotateCcw, Settings, Trash2 } from "lucide-react";
+import { Copy, Pencil, Plus, RotateCcw, Settings, Trash2 } from "lucide-react";
 import { calculateVickreyBreakdown, formatCurrency, normalizeItemName } from "@/lib/auction/calculations";
 import type { Auction, AuctionItem, Bid } from "@/lib/auction/types";
 import { auth, db } from "@/lib/firebase/client";
@@ -165,6 +165,18 @@ export function AdminDashboard({ auctionId }: Props) {
     if (response.ok) setIsReopenModalOpen(false);
   }
 
+  async function copyGuestLoginLink() {
+    const guestLoginUrl = new URL("/", window.location.origin);
+    guestLoginUrl.searchParams.set("auctionId", auctionId);
+
+    try {
+      await navigator.clipboard.writeText(guestLoginUrl.toString());
+      setMessage("Guest login link copied.");
+    } catch {
+      setMessage("Could not copy guest login link.");
+    }
+  }
+
   async function logout() {
     await signOut(auth);
     router.replace("/");
@@ -238,9 +250,20 @@ export function AdminDashboard({ auctionId }: Props) {
           <div className="mt-3 flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
               <h1 className="text-3xl font-bold">{auction?.title ?? "Auction"}</h1>
-              <p className="mt-1 text-sm text-slate-300">
-                Auction ID: {auctionId} · Status: {auction?.status ?? "loading"}
-              </p>
+              <div className="mt-1 flex flex-wrap items-center gap-1 text-sm text-slate-300">
+                <span>Auction ID: {auctionId}</span>
+                <button
+                  className="inline-flex rounded-full p-1 text-slate-300 transition hover:bg-white/10 hover:text-white"
+                  type="button"
+                  onClick={copyGuestLoginLink}
+                  aria-label="Copy guest login link"
+                  title="Copy guest login link"
+                >
+                  <Copy size={14} />
+                </button>
+                <span aria-hidden="true">·</span>
+                <span>Status: {auction?.status ?? "loading"}</span>
+              </div>
             </div>
             <div className="flex flex-wrap gap-2">
               {auction?.status === "pending" ? (
