@@ -75,10 +75,12 @@ export function AdminLogin() {
     if (!confirmation) return;
     const credential = await confirmation.confirm(code);
     if (!credential.user.phoneNumber) {
+      resetRecaptcha();
       await signOut(auth);
       toast("Admin login requires phone authentication.");
       return;
     }
+    resetRecaptcha();
     toast("Signed in. Choose an auction to manage.");
   }
 
