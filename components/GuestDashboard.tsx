@@ -3,18 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
-import {
-  collection,
-  collectionGroup,
-  deleteDoc,
-  doc,
-  getDoc,
-  onSnapshot,
-  query,
-  serverTimestamp,
-  setDoc,
-  where,
-} from "firebase/firestore";
+import { collection, collectionGroup, doc, onSnapshot, query, where } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AuctionRulesModal } from "@/components/AuctionRulesModal";
@@ -47,7 +36,6 @@ export function GuestDashboard({ auctionId }: Props) {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [auction, setAuction] = useState<Auction | null>(null);
-  const [guestProfile, setGuestProfile] = useState<{ uid: string; displayName: string } | null>(null);
   const [items, setItems] = useState<AuctionItem[]>([]);
   const [myBids, setMyBids] = useState<Bid[]>([]);
   const [activeTab, setActiveTab] = useState<"auction" | "bids">("auction");
@@ -83,17 +71,6 @@ export function GuestDashboard({ auctionId }: Props) {
       query(collectionGroup(db, "bids"), where("auctionId", "==", auctionId), where("uid", "==", user.uid)),
       (snapshot) => setMyBids(snapshot.docs.map((bidDoc) => ({ id: bidDoc.id, ...bidDoc.data() }) as Bid)),
     );
-  }, [auctionId, user]);
-
-  useEffect(() => {
-    if (!user) return;
-
-    return onSnapshot(doc(db, `users/${user.uid}/auctions/${auctionId}`), (snapshot) => {
-      setGuestProfile({
-        uid: user.uid,
-        displayName: snapshot.exists() ? String(snapshot.get("displayName") ?? "") : "",
-      });
-    });
   }, [auctionId, user]);
 
   const isAuctionOpen = auction?.status === "open";
@@ -153,28 +130,21 @@ export function GuestDashboard({ auctionId }: Props) {
       setBidError(amountError);
       return;
     }
-    const bidderName = guestProfile?.uid === user.uid ? guestProfile.displayName.trim() : "";
-    if (!bidderName) {
-      setBidError("Guest profile is still loading. Please try again.");
+    const token = await user.getIdToken();
+    const response = await fetch(`/api/auctions/${auctionId}/bids`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        itemId: selectedItem.id,
+        amount,
+      }),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      setBidError(result.error ?? "Unable to save bid.");
       return;
     }
 
-    const bidRef = doc(db, `auctions/${auctionId}/items/${selectedItem.id}/bids/${user.uid}`);
-    const existingBid = await getDoc(bidRef);
-    await setDoc(
-      bidRef,
-      {
-        auctionId,
-        itemId: selectedItem.id,
-        uid: user.uid,
-        bidderName,
-        amount,
-        type: "regular",
-        updatedAt: serverTimestamp(),
-        ...(!existingBid.exists() ? { createdAt: serverTimestamp() } : {}),
-      },
-      { merge: true },
-    );
     setSelectedItem(null);
     setBidAmount("");
     setBidError("");
@@ -252,7 +222,19 @@ export function GuestDashboard({ auctionId }: Props) {
       return;
     }
     if (bid.type === "locked") return;
-    await deleteDoc(doc(db, `auctions/${auctionId}/items/${bid.itemId}/bids/${bid.uid}`));
+
+    const token = await user?.getIdToken();
+    if (!token) {
+      setMessage("Sign in first.");
+      return;
+    }
+    const response = await fetch(`/api/auctions/${auctionId}/bids`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ itemId: bid.itemId }),
+    });
+    const result = await response.json();
+    if (!response.ok) setMessage(result.error ?? "Unable to remove bid.");
   }
 
   async function logout() {
@@ -444,6 +426,12 @@ export function GuestDashboard({ auctionId }: Props) {
             {myBids.map((bid) => {
               const item = activeItems.find((candidate) => candidate.id === bid.itemId);
               if (!item) return null;
+              const lockInDisabledReason =
+                bid.amount < item.lockInPrice
+                  ? lockInDisabledMessage(item)
+                  : !isAuctionOpen
+                    ? biddingUnavailableMessage
+                    : "";
               return (
                 <motion.div
                   layout
@@ -477,11 +465,15 @@ export function GuestDashboard({ auctionId }: Props) {
                         >
                           Remove
                         </button>
-                        {isAuctionOpen && bid.amount >= item.lockInPrice && (
-                          <button className="button" onClick={() => requestLockIn(item, bid.amount, "page")}>
+                        <span title={lockInDisabledReason}>
+                          <button
+                            className="button"
+                            disabled={Boolean(lockInDisabledReason)}
+                            onClick={() => requestLockIn(item, bid.amount, "page")}
+                          >
                             Lock In
                           </button>
-                        )}
+                        </span>
                       </>
                     )}
                   </div>
@@ -533,22 +525,33 @@ export function GuestDashboard({ auctionId }: Props) {
               </p>
             ) : (
               <p className="mt-2 text-xs text-slate-500" id="bid-amount-help">
-                Enter a whole dollar amount &gt;= {formatCurrency(selectedItem.startingPrice)}.
+                Regular bids &gt;= {formatCurrency(selectedItem.startingPrice)} | Lock-in bid &gt;={" "}
+                {formatCurrency(selectedItem.lockInPrice)}.
               </p>
             )}
             <div className="mt-5 flex flex-col gap-2 sm:flex-row">
               <button className="button flex-1" type="submit">
                 Save regular bid
               </button>
-              {isAuctionOpen && Number(bidAmount) >= selectedItem.lockInPrice && (
+              <span
+                className="flex-1"
+                title={
+                  Number(bidAmount) < selectedItem.lockInPrice
+                    ? lockInDisabledMessage(selectedItem)
+                    : !isAuctionOpen
+                      ? biddingUnavailableMessage
+                      : ""
+                }
+              >
                 <button
-                  className="button-secondary flex-1"
+                  className="button-secondary w-full"
+                  disabled={!isAuctionOpen || Number(bidAmount) < selectedItem.lockInPrice}
                   type="button"
                   onClick={() => requestLockIn(selectedItem, Number(bidAmount), "dialog")}
                 >
                   Lock in now
                 </button>
-              )}
+              </span>
               <button
                 className="button-ghost"
                 type="button"
@@ -621,6 +624,10 @@ function bidAmountErrorForItem(item: AuctionItem, amount: number, minimumAmount:
   if (amount > maxAllowedBid) return "Bid seems a little high! It's way over MSRP";
 
   return "";
+}
+
+function lockInDisabledMessage(item: AuctionItem) {
+  return `The bid must be >= ${formatCurrency(item.lockInPrice)}`;
 }
 
 function LinkifiedNotes({
