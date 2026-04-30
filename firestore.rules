@@ -32,6 +32,12 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)/auctions/$(auctionId)).data;
     }
 
+    function maxAllowedBid(auctionId, itemId) {
+      return itemData(auctionId, itemId).msrp > 0
+        ? itemData(auctionId, itemId).msrp
+        : itemData(auctionId, itemId).startingPrice * 10;
+    }
+
     function validUserProfileCreate(uid) {
       return signedIn() &&
         request.auth.uid == uid &&
@@ -60,7 +66,9 @@ service cloud.firestore {
         request.resource.data.uid == uid &&
         request.resource.data.bidderName == guestData(auctionId).displayName &&
         request.resource.data.amount is number &&
+        request.resource.data.amount is int &&
         request.resource.data.amount >= itemData(auctionId, itemId).startingPrice &&
+        request.resource.data.amount <= maxAllowedBid(auctionId, itemId) &&
         request.resource.data.type == "regular" &&
         request.resource.data.updatedAt == request.time;
     }

@@ -18,6 +18,7 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AuctionRulesModal } from "@/components/AuctionRulesModal";
+import { isWholeDollarBid, maxAllowedBidForItem } from "@/lib/auction/bid-limits";
 import { calculateFinancialSummary, formatCurrency } from "@/lib/auction/calculations";
 import type { Auction, AuctionItem, Bid } from "@/lib/auction/types";
 import { auth, db } from "@/lib/firebase/client";
@@ -147,8 +148,9 @@ export function GuestDashboard({ auctionId }: Props) {
       setBidError("Enter a valid bid amount.");
       return;
     }
-    if (amount < selectedItem.startingPrice) {
-      setBidError(`Bid must be at least ${formatCurrency(selectedItem.startingPrice)}.`);
+    const amountError = bidAmountErrorForItem(selectedItem, amount, selectedItem.startingPrice, "Bid");
+    if (amountError) {
+      setBidError(amountError);
       return;
     }
     const bidderName = guestProfile?.uid === user.uid ? guestProfile.displayName.trim() : "";
@@ -191,10 +193,10 @@ export function GuestDashboard({ auctionId }: Props) {
       else setMessage(error);
       return;
     }
-    if (amount < item.lockInPrice) {
-      const error = `Lock-in bid must be at least ${formatCurrency(item.lockInPrice)}.`;
-      if (errorTarget === "dialog") setBidError(error);
-      else setMessage(error);
+    const amountError = bidAmountErrorForItem(item, amount, item.lockInPrice, "Lock-in bid");
+    if (amountError) {
+      if (errorTarget === "dialog") setBidError(amountError);
+      else setMessage(amountError);
       return;
     }
 
@@ -496,6 +498,7 @@ export function GuestDashboard({ auctionId }: Props) {
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
             className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-xl"
+            noValidate
             onSubmit={saveBid}
           >
             <h2 className="text-2xl font-bold">{selectedItem.name}</h2>
@@ -507,7 +510,12 @@ export function GuestDashboard({ auctionId }: Props) {
             </div>
             <label className="label mt-5">Your sealed bid</label>
             <input
-              className="input"
+              aria-describedby={bidError ? "bid-amount-error" : "bid-amount-help"}
+              aria-invalid={Boolean(bidError)}
+              className={`input ${bidError ? "border-red-300 bg-red-50/60 focus:border-red-500 focus:ring-red-500" : ""}`}
+              max={maxAllowedBidForItem(selectedItem)}
+              min={selectedItem.startingPrice}
+              step="1"
               type="number"
               value={bidAmount}
               onChange={(event) => {
@@ -515,7 +523,19 @@ export function GuestDashboard({ auctionId }: Props) {
                 setBidError("");
               }}
             />
-            {bidError && <p className="mt-3 rounded-2xl bg-red-50 p-3 text-sm text-red-700">{bidError}</p>}
+            {bidError ? (
+              <p
+                className="mt-3 rounded-2xl border border-red-100 bg-red-50 p-3 text-sm font-medium text-red-700 shadow-sm"
+                id="bid-amount-error"
+                role="alert"
+              >
+                {bidError}
+              </p>
+            ) : (
+              <p className="mt-2 text-xs text-slate-500" id="bid-amount-help">
+                Enter a whole dollar amount &gt;= {formatCurrency(selectedItem.startingPrice)}.
+              </p>
+            )}
             <div className="mt-5 flex flex-col gap-2 sm:flex-row">
               <button className="button flex-1" type="submit">
                 Save regular bid
@@ -591,6 +611,16 @@ function Price({ label, value }: { label: string; value: number }) {
       <p className="font-semibold">{formatCurrency(value)}</p>
     </div>
   );
+}
+
+function bidAmountErrorForItem(item: AuctionItem, amount: number, minimumAmount: number, label: string) {
+  if (!isWholeDollarBid(amount)) return `${label}s must be whole dollar amounts.`;
+  if (amount < minimumAmount) return `${label} must be at least ${formatCurrency(minimumAmount)}.`;
+
+  const maxAllowedBid = maxAllowedBidForItem(item);
+  if (amount > maxAllowedBid) return "Bid seems a little high! It's way over MSRP";
+
+  return "";
 }
 
 function LinkifiedNotes({

@@ -1,5 +1,6 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
+import { isWholeDollarBid, maxAllowedBidForItem } from "@/lib/auction/bid-limits";
 import { adminDb } from "@/lib/firebase/admin";
 import { requireAuctionGuest, requireUser } from "@/lib/firebase/server-auth";
 
@@ -20,8 +21,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
       itemId?: string;
       amount?: number;
     };
-    if (!itemId || !amount)
+    if (!itemId || typeof amount !== "number" || !Number.isFinite(amount))
       return NextResponse.json({ error: "Item and bid amount are required." }, { status: 400 });
+    if (!isWholeDollarBid(amount))
+      return NextResponse.json({ error: "Lock-in bids must be whole dollar amounts." }, { status: 400 });
 
     await adminDb.runTransaction(async (transaction) => {
       const auctionRef = adminDb.doc(`auctions/${auctionId}`);
@@ -33,6 +36,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
       if (itemDoc.get("status") !== "open" || itemDoc.get("winnerUid")) throw new Error(ALREADY_LOCKED_ERROR);
       if (amount < Number(itemDoc.get("lockInPrice") ?? 0))
         throw new Error("Bid does not meet the lock-in price.");
+      const maxAllowedBid = maxAllowedBidForItem({
+        msrp: Number(itemDoc.get("msrp") ?? 0),
+        startingPrice: Number(itemDoc.get("startingPrice") ?? 0),
+      });
+      if (amount > maxAllowedBid) throw new Error(`Bid seems a little high! It's way over MSRP`);
 
       const bidRef = itemRef.collection("bids").doc(user.uid);
       transaction.set(
