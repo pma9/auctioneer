@@ -24,6 +24,11 @@ type LockInRequest = {
   errorTarget: "dialog" | "page";
 };
 
+type RemoveBidRequest = {
+  bid: Bid;
+  item: AuctionItem;
+};
+
 type Settlement = {
   winningItems: { item: AuctionItem; bid?: Bid; finalPrice: number }[];
   losingBids: { bid: Bid; item: AuctionItem }[];
@@ -46,7 +51,9 @@ export function GuestDashboard({ auctionId }: Props) {
   const [bidAmount, setBidAmount] = useState("");
   const [bidError, setBidError] = useState("");
   const [pendingLockIn, setPendingLockIn] = useState<LockInRequest | null>(null);
+  const [pendingRemoveBid, setPendingRemoveBid] = useState<RemoveBidRequest | null>(null);
   const [isLockingIn, setIsLockingIn] = useState(false);
+  const [isRemovingBid, setIsRemovingBid] = useState(false);
 
   useEffect(() => onAuthStateChanged(auth, setUser), []);
 
@@ -226,17 +233,25 @@ export function GuestDashboard({ auctionId }: Props) {
     return true;
   }
 
+  async function confirmRemoveBid() {
+    if (!pendingRemoveBid) return;
+    setIsRemovingBid(true);
+    const removed = await removeBid(pendingRemoveBid.bid);
+    setIsRemovingBid(false);
+    if (removed) setPendingRemoveBid(null);
+  }
+
   async function removeBid(bid: Bid) {
     if (!isAuctionOpen) {
       toast(biddingUnavailableMessage);
-      return;
+      return false;
     }
-    if (bid.type === "locked") return;
+    if (bid.type === "locked") return false;
 
     const token = await user?.getIdToken();
     if (!token) {
       toast("Sign in first.");
-      return;
+      return false;
     }
     const response = await fetch(`/api/auctions/${auctionId}/bids`, {
       method: "DELETE",
@@ -244,7 +259,13 @@ export function GuestDashboard({ auctionId }: Props) {
       body: JSON.stringify({ itemId: bid.itemId }),
     });
     const result = await response.json();
-    if (!response.ok) toast(result.error ?? "Unable to remove bid.");
+    if (!response.ok) {
+      toast(result.error ?? "Unable to remove bid.");
+      return false;
+    }
+
+    toast("Bid removed.");
+    return true;
   }
 
   async function logout() {
@@ -471,14 +492,14 @@ export function GuestDashboard({ auctionId }: Props) {
                           disabled={!isAuctionOpen}
                           title="Remove bid"
                           type="button"
-                          onClick={() => removeBid(bid)}
+                          onClick={() => setPendingRemoveBid({ bid, item })}
                         >
                           <Trash2 aria-hidden="true" size={18} />
                         </button>
                         <span title={itemLockUnavailableReason}>
                           <button
                             aria-label={`Lock in minimum ${formatCurrency(item.lockInPrice)} bid for ${item.name}`}
-                            className="inline-flex h-10 items-center justify-center gap-1 rounded-full bg-amber-100 px-3 text-sm font-bold text-amber-800 transition hover:bg-amber-200 hover:text-amber-900"
+                            className="inline-flex h-10 items-center justify-center gap-1 rounded-full bg-green-100 px-3 text-sm font-bold text-green-800 transition hover:bg-green-200 hover:text-green-900"
                             disabled={Boolean(itemLockUnavailableReason)}
                             title={itemLockUnavailableReason || "Lock in at minimum price"}
                             type="button"
@@ -590,6 +611,39 @@ export function GuestDashboard({ auctionId }: Props) {
               </button>
             </div>
           </motion.form>
+        </div>
+      )}
+
+      {pendingRemoveBid && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl"
+          >
+            <h2 className="text-2xl font-bold">Are you sure?</h2>
+            <p className="mt-2 font-semibold text-slate-950">{pendingRemoveBid.item.name}</p>
+            <p className="mt-3 text-slate-600">
+              This will remove your current {formatCurrency(pendingRemoveBid.bid.amount)} bid. You can place a
+              new bid later while the auction is still open.
+            </p>
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+              <button
+                className="flex-1 rounded-full bg-red-600 px-5 py-3 font-bold text-white transition hover:bg-red-700"
+                disabled={isRemovingBid}
+                onClick={confirmRemoveBid}
+              >
+                {isRemovingBid ? "Removing..." : "Yes, remove bid"}
+              </button>
+              <button
+                className="button-secondary flex-1"
+                disabled={isRemovingBid}
+                onClick={() => setPendingRemoveBid(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </motion.div>
         </div>
       )}
 
