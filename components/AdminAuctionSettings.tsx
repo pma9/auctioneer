@@ -42,6 +42,10 @@ function formatPhoneLast4(phoneLast4: string) {
   return `***-***-${phoneLast4}`;
 }
 
+function getGuestStatus(guest: GuestRow) {
+  return guest.joinedUid || guest.joinedUids?.length ? "Joined" : "Invited";
+}
+
 export function AdminAuctionSettings({ auctionId }: Props) {
   const user = useRequiredFirebaseUser();
   const [auction, setAuction] = useState<Auction | null>(null);
@@ -359,6 +363,7 @@ export function AdminAuctionSettings({ auctionId }: Props) {
                   <p className="mt-1 wrap-break-word text-sm text-slate-600">
                     {formatPhoneLast4(guest.phoneLast4)}
                   </p>
+                  <p className="mt-2 text-sm font-medium text-slate-700">Status: {getGuestStatus(guest)}</p>
                   <div className="mt-3 flex gap-2">
                     <button
                       className="button-secondary flex-1 px-4 py-2"
@@ -385,6 +390,7 @@ export function AdminAuctionSettings({ auctionId }: Props) {
                   <tr>
                     <th className="py-3">Guest</th>
                     <th>Phone</th>
+                    <th>Status</th>
                     <th className="text-right" />
                   </tr>
                 </thead>
@@ -393,6 +399,7 @@ export function AdminAuctionSettings({ auctionId }: Props) {
                     <tr className="border-t border-slate-100" key={guest.phoneHash}>
                       <td className="py-3 font-medium">{guest.displayName}</td>
                       <td>{formatPhoneLast4(guest.phoneLast4)}</td>
+                      <td className="font-medium text-slate-700">{getGuestStatus(guest)}</td>
                       <td className="whitespace-nowrap text-right">
                         <button
                           className="icon-button"
