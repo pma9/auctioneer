@@ -1,7 +1,7 @@
 import { FieldValue, type WriteBatch } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
 import type { VerifiedGuest } from "@/lib/auction/types";
-import { hashPhoneNumber, normalizePhoneNumber } from "@/lib/auction/phone";
+import { getPhoneLast4, hashPhoneNumber, normalizePhoneNumber } from "@/lib/auction/phone";
 import { adminDb } from "@/lib/firebase/admin";
 import { requireAuctionAdmin, requireUser } from "@/lib/firebase/server-auth";
 
@@ -21,11 +21,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     const normalizedPhone = normalizePhoneNumber(phone);
     const phoneHash = hashPhoneNumber(normalizedPhone);
+    const phoneLast4 = getPhoneLast4(normalizedPhone);
     await adminDb.doc(`auctions/${auctionId}/verifiedGuests/${phoneHash}`).set(
       {
         phoneHash,
         displayName: displayName.trim(),
-        normalizedPhone,
+        phoneLast4,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       },
@@ -61,6 +62,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     const normalizedPhone = normalizePhoneNumber(phone);
     const nextPhoneHash = hashPhoneNumber(normalizedPhone);
+    const phoneLast4 = getPhoneLast4(normalizedPhone);
     const existingRef = adminDb.doc(`auctions/${auctionId}/verifiedGuests/${phoneHash}`);
     const nextRef = adminDb.doc(`auctions/${auctionId}/verifiedGuests/${nextPhoneHash}`);
     const existingDoc = await existingRef.get();
@@ -70,7 +72,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       ...existingDoc.data(),
       phoneHash: nextPhoneHash,
       displayName: displayName.trim(),
-      normalizedPhone,
+      phoneLast4,
       updatedAt: FieldValue.serverTimestamp(),
     };
 
@@ -127,11 +129,5 @@ async function revokeJoinedAccess(
   );
   joinedUids.forEach((uid) => {
     batch.delete(adminDb.doc(`users/${uid}/auctions/${auctionId}`));
-  });
-
-  // Legacy cleanup for memberships created before per-auction phoneHash was stored.
-  const usersSnapshot = await adminDb.collection("users").where("phoneHash", "==", phoneHash).get();
-  usersSnapshot.docs.forEach((userDoc) => {
-    batch.delete(adminDb.doc(`users/${userDoc.id}/auctions/${auctionId}`));
   });
 }

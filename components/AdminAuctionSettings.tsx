@@ -37,6 +37,10 @@ const emptyNotesForm = {
   closingNotes: "",
 };
 
+function formatPhoneLast4(phoneLast4: string) {
+  return `***-***-${phoneLast4}`;
+}
+
 export function AdminAuctionSettings({ auctionId }: Props) {
   const user = useRequiredFirebaseUser();
   const [auction, setAuction] = useState<Auction | null>(null);
@@ -66,7 +70,7 @@ export function AdminAuctionSettings({ auctionId }: Props) {
       setGuests(
         snapshot.docs.map((guestDoc) => {
           const data = guestDoc.data() as VerifiedGuest;
-          return { ...data, id: guestDoc.id, phoneHash: data.phoneHash ?? guestDoc.id };
+          return { ...data, id: guestDoc.id };
         }),
       ),
     );
@@ -196,7 +200,7 @@ export function AdminAuctionSettings({ auctionId }: Props) {
     setEditingGuest(guest);
     setGuestForm({
       displayName: guest.displayName,
-      phone: guest.normalizedPhone ?? "",
+      phone: "",
     });
   }
 
@@ -308,7 +312,7 @@ export function AdminAuctionSettings({ auctionId }: Props) {
           </button>
         </motion.form>
 
-        <div className="grid min-w-0 gap-6 lg:grid-cols-[1fr_1.4fr]">
+        <div className="grid min-w-0 gap-6 lg:grid-cols-[3fr_2fr]">
           <section className="card min-w-0 space-y-5">
             <div className="flex items-center gap-2">
               <UserPlus size={18} />
@@ -323,16 +327,21 @@ export function AdminAuctionSettings({ auctionId }: Props) {
                 onChange={(event) => setGuestForm({ ...guestForm, displayName: event.target.value })}
                 required
               />
-              <input
-                className="input"
-                type="tel"
-                inputMode="tel"
-                autoComplete="tel"
-                placeholder={US_PHONE_PLACEHOLDER}
-                value={guestForm.phone}
-                onChange={(event) => setGuestForm({ ...guestForm, phone: event.target.value })}
-                required
-              />
+              <div className="space-y-1">
+                <input
+                  className="input"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  placeholder={editingGuest ? "Re-enter phone number" : US_PHONE_PLACEHOLDER}
+                  value={guestForm.phone}
+                  onChange={(event) => setGuestForm({ ...guestForm, phone: event.target.value })}
+                  required
+                />
+                {editingGuest && (
+                  <p className="text-sm text-slate-500">Current phone ends in {editingGuest.phoneLast4}.</p>
+                )}
+              </div>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <button className="button" type="submit">
                   {editingGuest ? "Save" : "Add"}
@@ -350,7 +359,7 @@ export function AdminAuctionSettings({ auctionId }: Props) {
                 <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4" key={guest.phoneHash}>
                   <p className="font-semibold">{guest.displayName}</p>
                   <p className="mt-1 wrap-break-word text-sm text-slate-600">
-                    {guest.normalizedPhone ?? "Phone not stored"}
+                    {formatPhoneLast4(guest.phoneLast4)}
                   </p>
                   <div className="mt-3 flex gap-2">
                     <button
@@ -372,21 +381,21 @@ export function AdminAuctionSettings({ auctionId }: Props) {
               ))}
             </div>
 
-            <div className="hidden overflow-x-auto sm:block">
-              <table className="w-full min-w-[560px] text-left text-sm">
+            <div className="hidden sm:block">
+              <table className="w-full text-left text-sm">
                 <thead className="text-slate-500">
                   <tr>
                     <th className="py-3">Guest</th>
                     <th>Phone</th>
-                    <th />
+                    <th className="text-right" />
                   </tr>
                 </thead>
                 <tbody>
                   {guests.map((guest) => (
                     <tr className="border-t border-slate-100" key={guest.phoneHash}>
                       <td className="py-3 font-medium">{guest.displayName}</td>
-                      <td>{guest.normalizedPhone ?? "Phone not stored"}</td>
-                      <td>
+                      <td>{formatPhoneLast4(guest.phoneLast4)}</td>
+                      <td className="whitespace-nowrap text-right">
                         <button
                           className="icon-button"
                           aria-label={`Edit ${guest.displayName}`}

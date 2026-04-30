@@ -18,3 +18,7 @@ export function hashPhoneNumber(phone: string) {
     .update(`${pepper}:${normalizePhoneNumber(phone)}`)
     .digest("hex");
 }
+
+export function getPhoneLast4(phone: string) {
+  return normalizePhoneNumber(phone).slice(-4);
+}

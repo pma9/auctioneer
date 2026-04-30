@@ -1,6 +1,6 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
-import { hashPhoneNumber } from "@/lib/auction/phone";
+import { getPhoneLast4, hashPhoneNumber } from "@/lib/auction/phone";
 import { adminDb } from "@/lib/firebase/admin";
 import { requireUser } from "@/lib/firebase/server-auth";
 
@@ -17,6 +17,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     const phoneHash = hashPhoneNumber(user.phone_number);
+    const phoneLast4 = getPhoneLast4(user.phone_number);
     const guestDoc = await adminDb.doc(`auctions/${auctionId}/verifiedGuests/${phoneHash}`).get();
     if (!guestDoc.exists) {
       return NextResponse.json(
@@ -31,6 +32,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       adminDb.doc(`users/${user.uid}`),
       {
         phoneHash,
+        phoneLast4,
         displayName,
         updatedAt: FieldValue.serverTimestamp(),
       },
@@ -42,7 +44,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         auctionId,
         role: "guest",
         phoneHash,
-        normalizedPhone: user.phone_number,
+        phoneLast4,
         displayName,
         joinedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
@@ -54,7 +56,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       {
         joinedUid: user.uid,
         joinedUids: FieldValue.arrayUnion(user.uid),
-        normalizedPhone: user.phone_number,
+        phoneLast4,
         updatedAt: FieldValue.serverTimestamp(),
       },
       { merge: true },

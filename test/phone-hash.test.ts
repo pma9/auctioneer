@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { hashPhoneNumber } from "@/lib/auction/phone";
+import { getPhoneLast4, hashPhoneNumber } from "@/lib/auction/phone";
 
 const originalPepper = process.env.PHONE_HASH_PEPPER;
 
@@ -20,5 +20,9 @@ describe("phone hashing", () => {
     process.env.PHONE_HASH_PEPPER = "test-pepper";
 
     expect(hashPhoneNumber("555-555-0123")).toBe(hashPhoneNumber("+1 555 555 0123"));
+  });
+
+  it("returns the last four digits from normalized phone input", () => {
+    expect(getPhoneLast4("(555) 555-0123")).toBe("0123");
   });
 });

@@ -1,7 +1,7 @@
 import { randomInt } from "crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
-import { hashPhoneNumber } from "@/lib/auction/phone";
+import { getPhoneLast4, hashPhoneNumber } from "@/lib/auction/phone";
 import { adminDb } from "@/lib/firebase/admin";
 import { requireUser } from "@/lib/firebase/server-auth";
 
@@ -56,6 +56,7 @@ async function createAuctionWithShortCode({
   phoneNumber: string;
 }) {
   const phoneHash = hashPhoneNumber(phoneNumber);
+  const phoneLast4 = getPhoneLast4(phoneNumber);
 
   for (let attempt = 0; attempt < AUCTION_CODE_RETRIES; attempt++) {
     const auctionId = generateAuctionCode();
@@ -75,7 +76,7 @@ async function createAuctionWithShortCode({
         uid,
         displayName: adminDisplayName,
         phoneHash,
-        normalizedPhone: phoneNumber,
+        phoneLast4,
         createdAt: FieldValue.serverTimestamp(),
       });
       transaction.set(
@@ -83,7 +84,7 @@ async function createAuctionWithShortCode({
         {
           displayName: adminDisplayName,
           phoneHash,
-          normalizedPhone: phoneNumber,
+          phoneLast4,
           updatedAt: FieldValue.serverTimestamp(),
         },
         { merge: true },

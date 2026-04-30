@@ -54,7 +54,7 @@ export type Bid = {
 export type VerifiedGuest = {
   phoneHash: string;
   displayName: string;
-  normalizedPhone?: string;
+  phoneLast4: string;
   createdAt?: unknown;
   updatedAt?: unknown;
   joinedUid?: string;
