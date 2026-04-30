@@ -7,7 +7,7 @@ import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { collection, collectionGroup, doc, onSnapshot, query, where } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Lock, Pencil, Trash2 } from "lucide-react";
+import { Lock, Pencil, Trash2, X } from "lucide-react";
 import { AuctionRulesModal } from "@/components/AuctionRulesModal";
 import { toast } from "sonner";
 import { isWholeDollarBid, maxAllowedBidForItem } from "@/lib/auction/bid-limits";
@@ -456,18 +456,34 @@ export function GuestDashboard({ auctionId }: Props) {
                 My Bids
               </button>
             </div>
-            <input
-              aria-label={activeTab === "auction" ? "Search auction items" : "Search my bids"}
-              className="input"
-              placeholder={
-                activeTab === "auction"
-                  ? "Search auction items by name, description, or keyword"
-                  : "Search my bids by item, description, or keyword"
-              }
-              type="search"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-            />
+            <div className="relative">
+              <input
+                aria-label={activeTab === "auction" ? "Search auction items" : "Search my bids"}
+                className="input pr-12"
+                enterKeyHint="done"
+                placeholder={
+                  activeTab === "auction"
+                    ? "Search auction items by name, description, or keyword"
+                    : "Search my bids by item, description, or keyword"
+                }
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") event.currentTarget.blur();
+                }}
+              />
+              {searchQuery && (
+                <button
+                  aria-label="Clear search"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                >
+                  <X aria-hidden="true" size={18} />
+                </button>
+              )}
+            </div>
           </div>
         )}
 

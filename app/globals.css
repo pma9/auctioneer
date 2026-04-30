@@ -105,6 +105,10 @@ button:disabled {
   box-shadow: 0 0 0 3px rgb(245 158 11 / 0.2);
 }
 
+.input[type="search"]::-webkit-search-cancel-button {
+  appearance: none;
+}
+
 .label {
   display: block;
   font-size: 0.875rem;

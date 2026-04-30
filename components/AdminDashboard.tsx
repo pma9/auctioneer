@@ -18,7 +18,7 @@ import {
 } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Copy, Pencil, Plus, RotateCcw, Settings, Trash2 } from "lucide-react";
+import { Copy, Pencil, Plus, RotateCcw, Settings, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { calculateVickreyBreakdown, formatCurrency, normalizeItemName } from "@/lib/auction/calculations";
 import type { Auction, AuctionItem, Bid } from "@/lib/auction/types";
@@ -363,18 +363,34 @@ export function AdminDashboard({ auctionId }: Props) {
                 Add item
               </button>
             </div>
-            <input
-              aria-label={activeTab === "current" ? "Search current bids" : "Search all items"}
-              className="input"
-              placeholder={
-                activeTab === "current"
-                  ? "Search bids by item, notes, keywords, or bidder"
-                  : "Search items by name, notes, or keywords"
-              }
-              type="search"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-            />
+            <div className="relative">
+              <input
+                aria-label={activeTab === "current" ? "Search current bids" : "Search all items"}
+                className="input pr-12"
+                enterKeyHint="done"
+                placeholder={
+                  activeTab === "current"
+                    ? "Search bids by item, notes, keywords, or bidder"
+                    : "Search items by name, notes, or keywords"
+                }
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") event.currentTarget.blur();
+                }}
+              />
+              {searchQuery && (
+                <button
+                  aria-label="Clear search"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                >
+                  <X aria-hidden="true" size={18} />
+                </button>
+              )}
+            </div>
           </div>
 
           {activeTab === "current" ? (
