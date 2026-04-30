@@ -90,8 +90,12 @@ export function GuestDashboard({ auctionId }: Props) {
     });
   }, [auctionId, user]);
 
-  const isAuctionActive = auction?.status === "active";
+  const isAuctionOpen = auction?.status === "open";
+  const isAuctionPending = auction?.status === "pending";
   const isAuctionClosed = auction?.status === "closed";
+  const biddingUnavailableMessage = isAuctionPending
+    ? "Bidding has not opened yet. You can browse items until the auction opens."
+    : "This auction is closed. Bids can no longer be changed.";
   const activeItems = useMemo(
     () => items.filter((item) => item.status === "open" || item.status === "locked"),
     [items],
@@ -126,8 +130,8 @@ export function GuestDashboard({ auctionId }: Props) {
     event.preventDefault();
     if (!user || !selectedItem) return;
     setBidError("");
-    if (!isAuctionActive) {
-      setBidError("This auction is closed. No more bids can be placed.");
+    if (!isAuctionOpen) {
+      setBidError(biddingUnavailableMessage);
       return;
     }
     const amount = Number(bidAmount);
@@ -165,8 +169,8 @@ export function GuestDashboard({ auctionId }: Props) {
   }
 
   function requestLockIn(item: AuctionItem, amount: number, errorTarget: LockInRequest["errorTarget"]) {
-    if (!isAuctionActive) {
-      const error = "This auction is closed. No more bids can be placed.";
+    if (!isAuctionOpen) {
+      const error = biddingUnavailableMessage;
       if (errorTarget === "dialog") setBidError(error);
       else setMessage(error);
       return;
@@ -231,8 +235,8 @@ export function GuestDashboard({ auctionId }: Props) {
   }
 
   async function removeBid(bid: Bid) {
-    if (!isAuctionActive) {
-      setMessage("This auction is closed. Bids can no longer be changed.");
+    if (!isAuctionOpen) {
+      setMessage(biddingUnavailableMessage);
       return;
     }
     if (bid.type === "locked") return;
@@ -263,12 +267,19 @@ export function GuestDashboard({ auctionId }: Props) {
       <div className="mx-auto max-w-6xl space-y-6">
         <header className="rounded-3xl bg-slate-950 p-6 text-white shadow-sm">
           <p className="text-sm uppercase tracking-[0.3em] text-amber-300">
-            {isAuctionClosed ? "Auction Closed" : "Guest Dashboard"}
+            {isAuctionClosed ? "Auction Closed" : isAuctionPending ? "Auction Pending" : "Guest Dashboard"}
           </p>
-          <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <h1 className="text-3xl font-bold">
-              {auction ? `${auction.title} hosted by ${auction.adminDisplayName}` : "Auction"}
-            </h1>
+          <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="lg:min-w-0">
+              <h1 className="text-3xl font-bold">
+                {auction ? `${auction.title} hosted by ${auction.adminDisplayName}` : "Auction"}
+              </h1>
+              {!isAuctionClosed && auction?.auctionNotes && (
+                <p className="mt-4 max-w-3xl whitespace-pre-wrap text-sm leading-6 text-slate-200">
+                  {auction.auctionNotes}
+                </p>
+              )}
+            </div>
             <div className="flex flex-col gap-2 sm:flex-row lg:shrink-0">
               <AuctionRulesModal
                 className="button-light inline-flex w-full text-lg sm:w-auto"
@@ -280,11 +291,6 @@ export function GuestDashboard({ auctionId }: Props) {
               </button>
             </div>
           </div>
-          {!isAuctionClosed && auction?.auctionNotes && (
-            <p className="mt-4 max-w-3xl whitespace-pre-wrap text-sm leading-6 text-slate-200">
-              {auction.auctionNotes}
-            </p>
-          )}
         </header>
 
         {isAuctionClosed && (
@@ -295,6 +301,15 @@ export function GuestDashboard({ auctionId }: Props) {
                 {auction.closingNotes}
               </p>
             )}
+          </section>
+        )}
+
+        {isAuctionPending && (
+          <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5">
+            <p className="text-md font-semibold uppercase tracking-[0.2em] text-amber-700">Auction Pending</p>
+            <p className="mt-2 text-sm leading-6 text-slate-700">
+              You can browse the items now. Bidding will be available once the admin opens the auction.
+            </p>
           </section>
         )}
 
@@ -379,7 +394,7 @@ export function GuestDashboard({ auctionId }: Props) {
                     </div>
                     <button
                       className="button w-full"
-                      disabled={!isAuctionActive || item.status !== "open"}
+                      disabled={!isAuctionOpen || item.status !== "open"}
                       onClick={() => {
                         setSelectedItem(item);
                         setBidAmount(String(myBid?.amount ?? item.startingPrice));
@@ -415,7 +430,7 @@ export function GuestDashboard({ auctionId }: Props) {
                       <>
                         <button
                           className="button-secondary"
-                          disabled={!isAuctionActive}
+                          disabled={!isAuctionOpen}
                           onClick={() => {
                             setSelectedItem(item);
                             setBidAmount(String(bid.amount));
@@ -426,12 +441,12 @@ export function GuestDashboard({ auctionId }: Props) {
                         </button>
                         <button
                           className="button-secondary"
-                          disabled={!isAuctionActive}
+                          disabled={!isAuctionOpen}
                           onClick={() => removeBid(bid)}
                         >
                           Remove
                         </button>
-                        {isAuctionActive && bid.amount >= item.lockInPrice && (
+                        {isAuctionOpen && bid.amount >= item.lockInPrice && (
                           <button className="button" onClick={() => requestLockIn(item, bid.amount, "page")}>
                             Lock In
                           </button>
@@ -476,7 +491,7 @@ export function GuestDashboard({ auctionId }: Props) {
               <button className="button flex-1" type="submit">
                 Save regular bid
               </button>
-              {isAuctionActive && Number(bidAmount) >= selectedItem.lockInPrice && (
+              {isAuctionOpen && Number(bidAmount) >= selectedItem.lockInPrice && (
                 <button
                   className="button-secondary flex-1"
                   type="button"

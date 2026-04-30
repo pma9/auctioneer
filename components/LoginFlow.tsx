@@ -66,15 +66,15 @@ export function LoginFlow() {
   return (
     <div className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-6 py-12">
       <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
-        <p className="text-sm font-semibold uppercase tracking-[0.3em] text-amber-600">Guest Access</p>
-        <h1 className="mt-3 text-4xl font-bold text-slate-950">Private phone login</h1>
+        <p className="text-sm font-semibold uppercase tracking-[0.3em] text-amber-600">Auctioneer</p>
+        <h1 className="mt-3 text-4xl font-bold text-slate-950">Guest login</h1>
         <p className="mt-3 text-slate-600">
-          We verify your phone number against this auction before starting Firebase SMS sign-in, so the guest
-          list is never exposed.
+          If you&apos;ve been added as a guest to an auction, you can sign in with the auction ID and your
+          phone number.
         </p>
 
         {!confirmation ? (
-          <form className="mt-8 space-y-4" onSubmit={requestCode}>
+          <form className="mt-6 space-y-4" onSubmit={requestCode}>
             <label className="label">Auction ID</label>
             <input
               className="input"
@@ -98,8 +98,7 @@ export function LoginFlow() {
             </button>
           </form>
         ) : (
-          <form className="mt-8 space-y-4" onSubmit={confirmCode}>
-            <p className="text-sm text-slate-600">Enter the code sent to {smsRecipientPhone}.</p>
+          <form className="mt-6 space-y-4" onSubmit={confirmCode}>
             <input
               className="input"
               placeholder="SMS code"
@@ -107,6 +106,7 @@ export function LoginFlow() {
               onChange={(event) => setCode(event.target.value)}
               required
             />
+            <p className="text-sm text-slate-600">Enter the code sent to {smsRecipientPhone}.</p>
             <button className="button w-full" type="submit">
               Enter auction
             </button>

@@ -15,6 +15,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const user = await requireUser(request);
     await requireAuctionAdmin(auctionId, user);
 
+    const auctionRef = adminDb.doc(`auctions/${auctionId}`);
+    const auctionDoc = await auctionRef.get();
+    if (!auctionDoc.exists) throw new Error("Auction not found.");
+    if (auctionDoc.get("status") !== "open") throw new Error("Only open auctions can be closed out.");
+
     const itemsSnapshot = await adminDb
       .collection(`auctions/${auctionId}/items`)
       .where("status", "==", "open")
@@ -38,9 +43,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
       });
     }
 
-    batch.update(adminDb.doc(`auctions/${auctionId}`), {
+    batch.update(auctionRef, {
       status: "closed",
       closedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     });
     await batch.commit();
 

@@ -50,6 +50,7 @@ export function AdminDashboard({ auctionId }: Props) {
   const [itemForm, setItemForm] = useState<ItemForm>(emptyItemForm);
   const [editingItem, setEditingItem] = useState<AuctionItem | null>(null);
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
+  const [isOpenModalOpen, setIsOpenModalOpen] = useState(false);
   const [isSettleModalOpen, setIsSettleModalOpen] = useState(false);
   const [isReopenModalOpen, setIsReopenModalOpen] = useState(false);
   const [message, setMessage] = useState("");
@@ -138,6 +139,18 @@ export function AdminDashboard({ auctionId }: Props) {
     const result = await response.json();
     setMessage(response.ok ? "Auction settled." : result.error);
     if (response.ok) setIsSettleModalOpen(false);
+  }
+
+  async function openAuction() {
+    const token = await user?.getIdToken();
+    if (!token) return setMessage("Sign in as an auction admin first.");
+    const response = await fetch(`/api/auctions/${auctionId}/open`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const result = await response.json();
+    setMessage(response.ok ? "Auction opened." : result.error);
+    if (response.ok) setIsOpenModalOpen(false);
   }
 
   async function reopenAuction() {
@@ -230,18 +243,22 @@ export function AdminDashboard({ auctionId }: Props) {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              {auction?.status === "closed" ? (
-                <button className="button-light" onClick={() => setIsReopenModalOpen(true)}>
-                  Re-open auction
+              {auction?.status === "pending" ? (
+                <button className="button-light" onClick={() => setIsOpenModalOpen(true)}>
+                  Open
                 </button>
-              ) : (
+              ) : auction?.status === "closed" ? (
+                <button className="button-light" onClick={() => setIsReopenModalOpen(true)}>
+                  Re-open
+                </button>
+              ) : auction?.status === "open" ? (
                 <button
                   className="rounded-full bg-red-600 px-5 py-3 font-bold text-white hover:bg-red-700"
                   onClick={() => setIsSettleModalOpen(true)}
                 >
                   Close out
                 </button>
-              )}
+              ) : null}
               <Link
                 className="button-light inline-flex"
                 href={`/auctions/${auctionId}/admin/settings`}
@@ -458,6 +475,31 @@ export function AdminDashboard({ auctionId }: Props) {
               </button>
             </div>
           </motion.form>
+        </div>
+      )}
+
+      {isOpenModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-xl"
+          >
+            <h2 className="text-2xl font-bold">Open auction?</h2>
+            <p className="mt-3 text-slate-600">
+              This will let guests place, edit, and lock in bids. Guests can already view items while the
+              auction is pending.
+            </p>
+            <p className="mt-3 font-semibold text-slate-950">Are you sure?</p>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+              <button className="button flex-1" onClick={openAuction}>
+                Yes, open auction
+              </button>
+              <button className="button-ghost flex-1" type="button" onClick={() => setIsOpenModalOpen(false)}>
+                Cancel
+              </button>
+            </div>
+          </motion.div>
         </div>
       )}
 

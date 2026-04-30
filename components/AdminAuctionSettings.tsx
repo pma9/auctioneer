@@ -211,8 +211,8 @@ export function AdminAuctionSettings({ auctionId }: Props) {
           <div>
             <h2 className="font-semibold">Guest dashboard notes</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Share general auction information while bidding is open, then payment or pickup instructions
-              after close.
+              Share general auction information before and while bidding is open, then payment or pickup
+              instructions after close.
             </p>
           </div>
           <label className="label">
@@ -239,23 +239,6 @@ export function AdminAuctionSettings({ auctionId }: Props) {
         </motion.form>
 
         <div className="grid min-w-0 gap-6 lg:grid-cols-[1fr_1.4fr]">
-          <motion.form layout className="card min-w-0 space-y-4" onSubmit={importSheet}>
-            <div className="flex items-center gap-2">
-              <Sheet size={18} />
-              <h2 className="font-semibold">Sheet import</h2>
-            </div>
-            <input
-              className="input"
-              placeholder="Google Sheet URL or ID"
-              value={sheetUrl}
-              onChange={(event) => setSheetUrl(event.target.value)}
-              required
-            />
-            <button className="button w-full" type="submit">
-              Import catalog
-            </button>
-          </motion.form>
-
           <section className="card min-w-0 space-y-5">
             <div className="flex items-center gap-2">
               <UserPlus size={18} />
@@ -355,6 +338,23 @@ export function AdminAuctionSettings({ auctionId }: Props) {
               </table>
             </div>
           </section>
+
+          <motion.form layout className="card min-w-0 space-y-4" onSubmit={importSheet}>
+            <div className="flex items-center gap-2">
+              <Sheet size={18} />
+              <h2 className="font-semibold">Sheet import</h2>
+            </div>
+            <input
+              className="input"
+              placeholder="Google Sheet URL or ID"
+              value={sheetUrl}
+              onChange={(event) => setSheetUrl(event.target.value)}
+              required
+            />
+            <button className="button w-full" type="submit">
+              Import catalog
+            </button>
+          </motion.form>
         </div>
       </div>
     </div>

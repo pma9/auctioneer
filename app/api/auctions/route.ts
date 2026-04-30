@@ -67,7 +67,7 @@ async function createAuctionWithShortCode({
       transaction.create(auctionRef, {
         title,
         adminDisplayName,
-        status: "active",
+        status: "pending",
         createdBy: uid,
         createdAt: FieldValue.serverTimestamp(),
       });

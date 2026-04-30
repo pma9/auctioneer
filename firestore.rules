@@ -20,8 +20,8 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/users/$(request.auth.uid)/auctions/$(auctionId));
     }
 
-    function isAuctionActive(auctionId) {
-      return get(/databases/$(database)/documents/auctions/$(auctionId)).data.status == "active";
+    function isAuctionOpen(auctionId) {
+      return get(/databases/$(database)/documents/auctions/$(auctionId)).data.status == "open";
     }
 
     match /users/{uid} {
@@ -68,12 +68,12 @@ service cloud.firestore {
             request.resource.data.auctionId == auctionId &&
             request.resource.data.itemId == itemId &&
             request.resource.data.type == "regular" &&
-            isAuctionActive(auctionId) &&
+            isAuctionOpen(auctionId) &&
             get(/databases/$(database)/documents/auctions/$(auctionId)/items/$(itemId)).data.status == "open";
           allow delete: if signedIn() &&
             request.auth.uid == uid &&
             resource.data.type == "regular" &&
-            isAuctionActive(auctionId);
+            isAuctionOpen(auctionId);
         }
       }
     }

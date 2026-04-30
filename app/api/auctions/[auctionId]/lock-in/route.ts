@@ -28,7 +28,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       const itemRef = adminDb.doc(`auctions/${auctionId}/items/${itemId}`);
       const auctionDoc = await transaction.get(auctionRef);
       const itemDoc = await transaction.get(itemRef);
-      if (auctionDoc.get("status") !== "active") throw new Error("This auction is closed.");
+      if (auctionDoc.get("status") !== "open") throw new Error("Bidding is not open for this auction.");
       if (!itemDoc.exists) throw new Error("Item not found.");
       if (itemDoc.get("status") !== "open" || itemDoc.get("winnerUid")) throw new Error(ALREADY_LOCKED_ERROR);
       if (amount < Number(itemDoc.get("lockInPrice") ?? 0))

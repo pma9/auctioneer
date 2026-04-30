@@ -7,11 +7,11 @@ export default function Home() {
       <main className="mx-auto flex min-h-[calc(100vh-6rem)] max-w-6xl flex-col justify-center">
         <p className="text-sm font-semibold uppercase tracking-[0.35em] text-amber-700">Auctioneer</p>
         <h1 className="mt-5 max-w-4xl text-5xl font-black tracking-tight sm:text-7xl">
-          "Lock-in" hybrid Vickrey auctions.
+          &quot;Lock-in&quot; hybrid Vickrey auctions.
         </h1>
         <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-600">
-          Auctioneer is a new "Hybrid Vickrey" platform by Polo, combining secret bidding with an instant
-          "Lock-In" race for a guaranteed win! <AuctionRulesModal />
+          Auctioneer is a new &quot;Hybrid Vickrey&quot; platform by Polo, combining secret bidding with an
+          instant &quot;Lock-In&quot; race for a guaranteed win! <AuctionRulesModal />
         </p>
         <div className="mt-10 flex flex-col gap-3 sm:flex-row">
           <Link className="button inline-flex" href="/auctions/new">

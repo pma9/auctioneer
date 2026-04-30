@@ -16,38 +16,18 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const auctionRef = adminDb.doc(`auctions/${auctionId}`);
     const auctionDoc = await auctionRef.get();
     if (!auctionDoc.exists) throw new Error("Auction not found.");
-    if (auctionDoc.get("status") !== "closed") throw new Error("Only closed auctions can be re-opened.");
+    if (auctionDoc.get("status") !== "pending") throw new Error("Only pending auctions can be opened.");
 
-    const settledItemsSnapshot = await adminDb
-      .collection(`auctions/${auctionId}/items`)
-      .where("status", "==", "settled")
-      .get();
-    const batch = adminDb.batch();
-
-    for (const itemDoc of settledItemsSnapshot.docs) {
-      batch.update(itemDoc.ref, {
-        status: "open",
-        winnerUid: FieldValue.delete(),
-        winnerName: FieldValue.delete(),
-        winningBid: FieldValue.delete(),
-        finalPrice: FieldValue.delete(),
-        settledAt: FieldValue.delete(),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
-    }
-
-    batch.update(auctionRef, {
+    await auctionRef.update({
       status: "open",
-      closedAt: FieldValue.delete(),
-      reopenedAt: FieldValue.serverTimestamp(),
+      openedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
-    await batch.commit();
 
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Unable to re-open auction." },
+      { error: error instanceof Error ? error.message : "Unable to open auction." },
       { status: 400 },
     );
   }

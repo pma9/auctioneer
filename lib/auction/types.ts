@@ -1,4 +1,4 @@
-export type AuctionStatus = "draft" | "active" | "closed";
+export type AuctionStatus = "pending" | "open" | "closed";
 export type BidType = "regular" | "locked";
 export type ItemStatus = "open" | "locked" | "settled" | "removed" | "invalid";
 
@@ -11,6 +11,7 @@ export type Auction = {
   auctionNotes?: string;
   closingNotes?: string;
   createdAt?: unknown;
+  openedAt?: unknown;
   closedAt?: unknown;
   reopenedAt?: unknown;
   startsAt?: unknown;
