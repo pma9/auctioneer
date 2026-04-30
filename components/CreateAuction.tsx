@@ -16,6 +16,7 @@ export function CreateAuction() {
   const [user, setUser] = useState<User | null>(null);
   const [title, setTitle] = useState("");
   const [adminDisplayName, setAdminDisplayName] = useState("");
+  const [adminDisplayNameDraft, setAdminDisplayNameDraft] = useState("");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [confirmation, setConfirmation] = useState<ConfirmationResult | null>(null);
@@ -27,7 +28,9 @@ export function CreateAuction() {
     if (!user) return;
 
     return onSnapshot(doc(db, `users/${user.uid}`), (snapshot) => {
-      setAdminDisplayName(snapshot.exists() ? String(snapshot.get("displayName") ?? "") : "");
+      const displayName = snapshot.exists() ? String(snapshot.get("displayName") ?? "") : "";
+      setAdminDisplayName(displayName);
+      setAdminDisplayNameDraft(displayName);
     });
   }, [user]);
 
@@ -68,7 +71,8 @@ export function CreateAuction() {
       setMessage("Admins must sign in with a phone number to create auctions.");
       return;
     }
-    if (!adminDisplayName.trim()) {
+    const submittedAdminDisplayName = (adminDisplayName || adminDisplayNameDraft).trim();
+    if (!submittedAdminDisplayName) {
       setMessage("Admin name is required.");
       return;
     }
@@ -79,10 +83,11 @@ export function CreateAuction() {
       const response = await fetch("/api/auctions", {
         method: "POST",
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-        body: JSON.stringify({ title: auctionTitle, adminDisplayName }),
+        body: JSON.stringify({ title: auctionTitle, adminDisplayName: submittedAdminDisplayName }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error);
+      setAdminDisplayName(submittedAdminDisplayName);
       const auctionId = result.auctionId as string;
       router.push(`/auctions/${auctionId}/admin`);
     } catch (error) {
@@ -156,8 +161,8 @@ export function CreateAuction() {
                 <input
                   className="input"
                   autoComplete="name"
-                  value={adminDisplayName}
-                  onChange={(event) => setAdminDisplayName(event.target.value)}
+                  value={adminDisplayNameDraft}
+                  onChange={(event) => setAdminDisplayNameDraft(event.target.value)}
                   required
                 />
               </>

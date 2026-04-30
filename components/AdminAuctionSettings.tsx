@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { collection, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
+import { collection, doc, onSnapshot, serverTimestamp, updateDoc, writeBatch } from "firebase/firestore";
 import Link from "next/link";
 import { ArrowLeft, Pencil, Sheet, Trash2, UserPlus } from "lucide-react";
 import { US_PHONE_PLACEHOLDER } from "@/lib/auction/phone-normalization";
@@ -43,6 +43,7 @@ export function AdminAuctionSettings({ auctionId }: Props) {
   const [guests, setGuests] = useState<GuestRow[]>([]);
   const [sheetUrl, setSheetUrl] = useState("");
   const [title, setTitle] = useState("");
+  const [adminDisplayName, setAdminDisplayName] = useState("");
   const [notesForm, setNotesForm] = useState(emptyNotesForm);
   const [guestForm, setGuestForm] = useState(emptyGuestForm);
   const [editingGuest, setEditingGuest] = useState<GuestRow | null>(null);
@@ -55,6 +56,7 @@ export function AdminAuctionSettings({ auctionId }: Props) {
       const nextAuction = snapshot.exists() ? ({ id: snapshot.id, ...snapshot.data() } as Auction) : null;
       setAuction(nextAuction);
       setTitle(nextAuction?.title ?? "");
+      setAdminDisplayName(nextAuction?.adminDisplayName ?? "");
       setNotesForm({
         auctionNotes: nextAuction?.auctionNotes ?? "",
         closingNotes: nextAuction?.closingNotes ?? "",
@@ -108,6 +110,30 @@ export function AdminAuctionSettings({ auctionId }: Props) {
       updatedAt: serverTimestamp(),
     });
     setMessage("Auction name updated.");
+  }
+
+  async function saveAdminDisplayName(event: FormEvent) {
+    event.preventDefault();
+    if (!user) return setMessage("Sign in as an auction admin first.");
+    const displayName = adminDisplayName.trim();
+    if (!displayName) return setMessage("Admin name is required.");
+
+    const batch = writeBatch(db);
+    batch.update(doc(db, `auctions/${auctionId}`), {
+      adminDisplayName: displayName,
+      updatedAt: serverTimestamp(),
+    });
+    batch.set(
+      doc(db, `auctions/${auctionId}/admins/${user.uid}`),
+      {
+        displayName,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
+    batch.set(doc(db, `users/${user.uid}`), { displayName }, { merge: true });
+    await batch.commit();
+    setMessage("Admin name updated.");
   }
 
   async function saveAuctionNotes(event: FormEvent) {
@@ -189,23 +215,44 @@ export function AdminAuctionSettings({ auctionId }: Props) {
 
         {message && <p className="rounded-2xl bg-amber-50 p-3 text-sm text-amber-800">{message}</p>}
 
-        <motion.form layout className="card space-y-4" onSubmit={saveAuctionTitle}>
-          <div>
-            <h2 className="font-semibold">Auction name</h2>
-            <p className="mt-1 text-sm text-slate-600">Change the title shown to admins and guests.</p>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-            <input
-              className="input"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              required
-            />
-            <button className="button" type="submit">
-              Change name
-            </button>
-          </div>
-        </motion.form>
+        <div className="grid gap-6 lg:grid-cols-2">
+          <motion.form layout className="card space-y-4" onSubmit={saveAuctionTitle}>
+            <div>
+              <h2 className="font-semibold">Auction name</h2>
+              <p className="mt-1 text-sm text-slate-600">Change the title shown to admins and guests.</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+              <input
+                className="input"
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                required
+              />
+              <button className="button" type="submit">
+                Change name
+              </button>
+            </div>
+          </motion.form>
+
+          <motion.form layout className="card space-y-4" onSubmit={saveAdminDisplayName}>
+            <div>
+              <h2 className="font-semibold">Admin name</h2>
+              <p className="mt-1 text-sm text-slate-600">Change the name shown as the auction host.</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+              <input
+                className="input"
+                autoComplete="name"
+                value={adminDisplayName}
+                onChange={(event) => setAdminDisplayName(event.target.value)}
+                required
+              />
+              <button className="button" type="submit">
+                Change name
+              </button>
+            </div>
+          </motion.form>
+        </div>
 
         <motion.form layout className="card space-y-4" onSubmit={saveAuctionNotes}>
           <div>
