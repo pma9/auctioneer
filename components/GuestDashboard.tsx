@@ -38,6 +38,10 @@ type Settlement = {
   totalOwed: number;
 };
 
+const URL_PATTERN = /((?:https?:\/\/|www\.)[^\s<>"']+)/gi;
+const URL_PREFIX_PATTERN = /^(?:https?:\/\/|www\.)/i;
+const TRAILING_URL_PUNCTUATION_PATTERN = /[.,!?;:]+$/;
+
 export function GuestDashboard({ auctionId }: Props) {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -287,9 +291,11 @@ export function GuestDashboard({ auctionId }: Props) {
                 {auction ? `${auction.title} hosted by ${auction.adminDisplayName}` : "Auction"}
               </h1>
               {!isAuctionClosed && auction?.auctionNotes && (
-                <p className="mt-4 max-w-3xl whitespace-pre-wrap text-sm leading-6 text-slate-200">
-                  {auction.auctionNotes}
-                </p>
+                <LinkifiedNotes
+                  className="mt-4 max-w-3xl whitespace-pre-wrap text-sm leading-6 text-slate-200"
+                  linkClassName="font-semibold text-amber-200 underline decoration-amber-200/70 underline-offset-2"
+                  text={auction.auctionNotes}
+                />
               )}
             </div>
             <div className="flex flex-col gap-2 sm:flex-row lg:shrink-0">
@@ -309,9 +315,11 @@ export function GuestDashboard({ auctionId }: Props) {
           <section className="rounded-3xl border border-red-200 bg-red-50 p-5">
             <p className="text-md font-semibold uppercase tracking-[0.2em] text-red-700">Auction Closed</p>
             {auction?.closingNotes && (
-              <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-700">
-                {auction.closingNotes}
-              </p>
+              <LinkifiedNotes
+                className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-700"
+                linkClassName="font-semibold text-red-700 underline decoration-red-700/60 underline-offset-2"
+                text={auction.closingNotes}
+              />
             )}
           </section>
         )}
@@ -582,6 +590,37 @@ function Price({ label, value }: { label: string; value: number }) {
       <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
       <p className="font-semibold">{formatCurrency(value)}</p>
     </div>
+  );
+}
+
+function LinkifiedNotes({
+  className,
+  linkClassName,
+  text,
+}: {
+  className: string;
+  linkClassName: string;
+  text: string;
+}) {
+  return (
+    <p className={className}>
+      {text.split(URL_PATTERN).map((part, index) => {
+        if (!URL_PREFIX_PATTERN.test(part)) return part;
+
+        const trailingPunctuation = part.match(TRAILING_URL_PUNCTUATION_PATTERN)?.[0] ?? "";
+        const urlText = trailingPunctuation ? part.slice(0, -trailingPunctuation.length) : part;
+        const href = urlText.startsWith("www.") ? `https://${urlText}` : urlText;
+
+        return (
+          <span key={`${urlText}-${index}`}>
+            <a className={linkClassName} href={href} rel="noopener noreferrer" target="_blank">
+              {urlText}
+            </a>
+            {trailingPunctuation}
+          </span>
+        );
+      })}
+    </p>
   );
 }
 
