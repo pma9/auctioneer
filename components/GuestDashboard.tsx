@@ -35,6 +35,11 @@ type Settlement = {
   totalOwed: number;
 };
 
+type BidRow = {
+  bid: Bid;
+  item: AuctionItem;
+};
+
 const URL_PATTERN = /((?:https?:\/\/|www\.)[^\s<>"']+)/gi;
 const URL_PREFIX_PATTERN = /^(?:https?:\/\/|www\.)/i;
 const TRAILING_URL_PUNCTUATION_PATTERN = /[.,!?;:]+$/;
@@ -103,9 +108,28 @@ export function GuestDashboard({ auctionId }: Props) {
     () => items.filter((item) => item.status === "open" || item.status === "locked"),
     [items],
   );
-  const summary = useMemo(() => calculateFinancialSummary(activeItems, myBids), [activeItems, myBids]);
   const bidsByItem = useMemo(() => new Map(myBids.map((bid) => [bid.itemId, bid])), [myBids]);
   const itemsById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
+  const bidRows = useMemo(
+    () =>
+      myBids
+        .map((bid) => ({ bid, item: itemsById.get(bid.itemId) }))
+        .filter((row): row is BidRow => Boolean(row.item)),
+    [itemsById, myBids],
+  );
+  const currentBidRows = useMemo(
+    () => bidRows.filter(({ item }) => !isLockedByAnotherGuest(item, user?.uid)),
+    [bidRows, user?.uid],
+  );
+  const invalidBidRows = useMemo(
+    () => bidRows.filter(({ item }) => isLockedByAnotherGuest(item, user?.uid)),
+    [bidRows, user?.uid],
+  );
+  const currentBids = useMemo(() => currentBidRows.map(({ bid }) => bid), [currentBidRows]);
+  const summary = useMemo(
+    () => calculateFinancialSummary(activeItems, currentBids),
+    [activeItems, currentBids],
+  );
   const settlement = useMemo(() => {
     const winningItems = items
       .filter(
@@ -390,7 +414,7 @@ export function GuestDashboard({ auctionId }: Props) {
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {activeItems.map((item) => {
               const myBid = bidsByItem.get(item.id);
-              const lockedByAnotherGuest = item.status === "locked" && item.winnerUid !== user.uid;
+              const lockedByAnotherGuest = isLockedByAnotherGuest(item, user.uid);
               return (
                 <motion.article layout className="card flex flex-col gap-4" key={item.id}>
                   <div>
@@ -404,7 +428,7 @@ export function GuestDashboard({ auctionId }: Props) {
                   </div>
                   {(myBid || lockedByAnotherGuest) && (
                     <div className="space-y-2">
-                      {myBid && (
+                      {myBid && !lockedByAnotherGuest && (
                         <p
                           className={`rounded-2xl p-3 text-sm font-medium ${
                             myBid.type === "locked"
@@ -445,88 +469,120 @@ export function GuestDashboard({ auctionId }: Props) {
             })}
           </section>
         ) : (
-          <section className="space-y-3">
-            {myBids.map((bid) => {
-              const item = activeItems.find((candidate) => candidate.id === bid.itemId);
-              if (!item) return null;
-              const itemLockUnavailableReason = !isAuctionOpen
-                ? biddingUnavailableMessage
-                : item.status !== "open"
-                  ? "Item is not open for bidding."
-                  : "";
-              const lockInDisabledReason =
-                itemLockUnavailableReason ||
-                (bid.amount < item.lockInPrice ? lockInDisabledMessage(item) : "");
-              return (
-                <motion.div
-                  layout
-                  className="card flex flex-col gap-4 md:flex-row md:items-center md:justify-between"
-                  key={bid.itemId}
-                >
-                  <div>
+          <section className="space-y-6">
+            <div className="space-y-3">
+              {currentBidRows.length ? (
+                currentBidRows.map(({ bid, item }) => {
+                  const itemLockUnavailableReason = !isAuctionOpen
+                    ? biddingUnavailableMessage
+                    : item.status !== "open"
+                      ? "Item is not open for bidding."
+                      : "";
+                  const lockInDisabledReason =
+                    itemLockUnavailableReason ||
+                    (bid.amount < item.lockInPrice ? lockInDisabledMessage(item) : "");
+                  return (
+                    <motion.div
+                      layout
+                      className="card flex flex-col gap-4 md:flex-row md:items-center md:justify-between"
+                      key={bid.itemId}
+                    >
+                      <div>
+                        <h2 className="text-lg font-bold">{item.name}</h2>
+                        <p className="text-sm text-slate-600">
+                          {formatCurrency(bid.amount)} {bid.type === "locked" ? "locked in" : "regular bid"}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        {bid.type === "regular" && (
+                          <>
+                            <button
+                              aria-label={`Edit bid for ${item.name}`}
+                              className="inline-flex size-10 items-center justify-center rounded-full bg-slate-100 text-slate-700 transition hover:bg-slate-200 hover:text-slate-950"
+                              disabled={!isAuctionOpen}
+                              title="Edit bid"
+                              type="button"
+                              onClick={() => {
+                                setSelectedItem(item);
+                                setBidAmount(String(bid.amount));
+                                setBidError("");
+                              }}
+                            >
+                              <Pencil aria-hidden="true" size={18} />
+                            </button>
+                            <button
+                              aria-label={`Remove bid for ${item.name}`}
+                              className="inline-flex size-10 items-center justify-center rounded-full bg-red-50 text-red-700 transition hover:bg-red-100 hover:text-red-800"
+                              disabled={!isAuctionOpen}
+                              title="Remove bid"
+                              type="button"
+                              onClick={() => setPendingRemoveBid({ bid, item })}
+                            >
+                              <Trash2 aria-hidden="true" size={18} />
+                            </button>
+                            <span title={itemLockUnavailableReason}>
+                              <button
+                                aria-label={`Lock in minimum ${formatCurrency(item.lockInPrice)} bid for ${item.name}`}
+                                className="inline-flex h-10 items-center justify-center gap-1 rounded-full bg-green-100 px-3 text-sm font-bold text-green-800 transition hover:bg-green-200 hover:text-green-900"
+                                disabled={Boolean(itemLockUnavailableReason)}
+                                title={itemLockUnavailableReason || "Lock in at minimum price"}
+                                type="button"
+                                onClick={() => requestLockIn(item, item.lockInPrice, "page")}
+                              >
+                                Min
+                                <Lock aria-hidden="true" size={15} />
+                              </button>
+                            </span>
+                            <span title={lockInDisabledReason}>
+                              <button
+                                aria-label={`Lock in ${formatCurrency(bid.amount)} bid for ${item.name}`}
+                                className="inline-flex size-10 items-center justify-center rounded-full bg-green-100 text-green-800 transition hover:bg-green-200 hover:text-green-900"
+                                disabled={Boolean(lockInDisabledReason)}
+                                title={lockInDisabledReason || "Lock in current bid"}
+                                type="button"
+                                onClick={() => requestLockIn(item, bid.amount, "page")}
+                              >
+                                <Lock aria-hidden="true" size={18} />
+                              </button>
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </motion.div>
+                  );
+                })
+              ) : (
+                <p className="rounded-2xl bg-white p-4 text-sm text-slate-600 shadow-sm">
+                  You have no current bids for this auction.
+                </p>
+              )}
+            </div>
+
+            {invalidBidRows.length > 0 && (
+              <div className="space-y-3">
+                <div className="px-5">
+                  <p className="text-sm font-semibold uppercase tracking-[0.2em] text-red-700">
+                    Invalid Bids
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    These bids are no longer active because another guest locked in the item.
+                  </p>
+                </div>
+                {invalidBidRows.map(({ bid, item }) => (
+                  <motion.div
+                    layout
+                    className="card flex flex-col gap-1 border-red-100 bg-red-50/60"
+                    key={bid.itemId}
+                  >
                     <h2 className="text-lg font-bold">{item.name}</h2>
+                    <p className="text-sm text-slate-600">Your bid: {formatCurrency(bid.amount)}</p>
                     <p className="text-sm text-slate-600">
-                      {formatCurrency(bid.amount)} {bid.type === "locked" ? "locked in" : "regular bid"}
+                      Locked in by {item.winnerName || "another guest"}
                     </p>
-                  </div>
-                  <div className="flex gap-2">
-                    {bid.type === "regular" && (
-                      <>
-                        <button
-                          aria-label={`Edit bid for ${item.name}`}
-                          className="inline-flex size-10 items-center justify-center rounded-full bg-slate-100 text-slate-700 transition hover:bg-slate-200 hover:text-slate-950"
-                          disabled={!isAuctionOpen}
-                          title="Edit bid"
-                          type="button"
-                          onClick={() => {
-                            setSelectedItem(item);
-                            setBidAmount(String(bid.amount));
-                            setBidError("");
-                          }}
-                        >
-                          <Pencil aria-hidden="true" size={18} />
-                        </button>
-                        <button
-                          aria-label={`Remove bid for ${item.name}`}
-                          className="inline-flex size-10 items-center justify-center rounded-full bg-red-50 text-red-700 transition hover:bg-red-100 hover:text-red-800"
-                          disabled={!isAuctionOpen}
-                          title="Remove bid"
-                          type="button"
-                          onClick={() => setPendingRemoveBid({ bid, item })}
-                        >
-                          <Trash2 aria-hidden="true" size={18} />
-                        </button>
-                        <span title={itemLockUnavailableReason}>
-                          <button
-                            aria-label={`Lock in minimum ${formatCurrency(item.lockInPrice)} bid for ${item.name}`}
-                            className="inline-flex h-10 items-center justify-center gap-1 rounded-full bg-green-100 px-3 text-sm font-bold text-green-800 transition hover:bg-green-200 hover:text-green-900"
-                            disabled={Boolean(itemLockUnavailableReason)}
-                            title={itemLockUnavailableReason || "Lock in at minimum price"}
-                            type="button"
-                            onClick={() => requestLockIn(item, item.lockInPrice, "page")}
-                          >
-                            Min
-                            <Lock aria-hidden="true" size={15} />
-                          </button>
-                        </span>
-                        <span title={lockInDisabledReason}>
-                          <button
-                            aria-label={`Lock in ${formatCurrency(bid.amount)} bid for ${item.name}`}
-                            className="inline-flex size-10 items-center justify-center rounded-full bg-green-100 text-green-800 transition hover:bg-green-200 hover:text-green-900"
-                            disabled={Boolean(lockInDisabledReason)}
-                            title={lockInDisabledReason || "Lock in current bid"}
-                            type="button"
-                            onClick={() => requestLockIn(item, bid.amount, "page")}
-                          >
-                            <Lock aria-hidden="true" size={18} />
-                          </button>
-                        </span>
-                      </>
-                    )}
-                  </div>
-                </motion.div>
-              );
-            })}
+                  </motion.div>
+                ))}
+              </div>
+            )}
           </section>
         )}
       </div>
@@ -709,6 +765,10 @@ function bidAmountErrorForItem(item: AuctionItem, amount: number, minimumAmount:
 
 function lockInDisabledMessage(item: AuctionItem) {
   return `The bid must be >= ${formatCurrency(item.lockInPrice)}`;
+}
+
+function isLockedByAnotherGuest(item: AuctionItem, uid?: string) {
+  return Boolean(uid) && item.status === "locked" && item.winnerUid !== uid;
 }
 
 function LinkifiedNotes({
