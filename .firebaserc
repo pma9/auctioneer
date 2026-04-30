@@ -1,0 +1,8 @@
+{
+  "projects": {
+    "default": "auctioneer-c89b3",
+    "prod": "auctioneer-prod-1c63e"
+  },
+  "targets": {},
+  "etags": {}
+}
