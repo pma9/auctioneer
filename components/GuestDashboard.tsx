@@ -408,7 +408,7 @@ export function GuestDashboard({ auctionId }: Props) {
                       disabled={!isAuctionOpen || item.status !== "open"}
                       onClick={() => {
                         setSelectedItem(item);
-                        setBidAmount(String(myBid?.amount ?? item.startingPrice));
+                        setBidAmount(String(myBid?.amount ?? ""));
                         setBidError("");
                       }}
                     >
