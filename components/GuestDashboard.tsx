@@ -6,6 +6,7 @@ import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { collection, collectionGroup, doc, onSnapshot, query, where } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Lock, Pencil, Trash2 } from "lucide-react";
 import { AuctionRulesModal } from "@/components/AuctionRulesModal";
 import { toast } from "sonner";
 import { isWholeDollarBid, maxAllowedBidForItem } from "@/lib/auction/bid-limits";
@@ -75,10 +76,7 @@ export function GuestDashboard({ auctionId }: Props) {
   }, [auctionId, user]);
 
   useEffect(() => {
-    if (!user) {
-      setGuestDisplayName("Guest");
-      return;
-    }
+    if (!user) return;
 
     return onSnapshot(doc(db, `users/${user.uid}/auctions/${auctionId}`), (snapshot) => {
       setGuestDisplayName(String(snapshot.get("displayName") ?? "Guest"));
@@ -430,12 +428,14 @@ export function GuestDashboard({ auctionId }: Props) {
             {myBids.map((bid) => {
               const item = activeItems.find((candidate) => candidate.id === bid.itemId);
               if (!item) return null;
+              const itemLockUnavailableReason = !isAuctionOpen
+                ? biddingUnavailableMessage
+                : item.status !== "open"
+                  ? "Item is not open for bidding."
+                  : "";
               const lockInDisabledReason =
-                bid.amount < item.lockInPrice
-                  ? lockInDisabledMessage(item)
-                  : !isAuctionOpen
-                    ? biddingUnavailableMessage
-                    : "";
+                itemLockUnavailableReason ||
+                (bid.amount < item.lockInPrice ? lockInDisabledMessage(item) : "");
               return (
                 <motion.div
                   layout
@@ -452,30 +452,52 @@ export function GuestDashboard({ auctionId }: Props) {
                     {bid.type === "regular" && (
                       <>
                         <button
-                          className="button-secondary"
+                          aria-label={`Edit bid for ${item.name}`}
+                          className="inline-flex size-10 items-center justify-center rounded-full bg-slate-100 text-slate-700 transition hover:bg-slate-200 hover:text-slate-950"
                           disabled={!isAuctionOpen}
+                          title="Edit bid"
+                          type="button"
                           onClick={() => {
                             setSelectedItem(item);
                             setBidAmount(String(bid.amount));
                             setBidError("");
                           }}
                         >
-                          Edit
+                          <Pencil aria-hidden="true" size={18} />
                         </button>
                         <button
-                          className="button-secondary"
+                          aria-label={`Remove bid for ${item.name}`}
+                          className="inline-flex size-10 items-center justify-center rounded-full bg-red-50 text-red-700 transition hover:bg-red-100 hover:text-red-800"
                           disabled={!isAuctionOpen}
+                          title="Remove bid"
+                          type="button"
                           onClick={() => removeBid(bid)}
                         >
-                          Remove
+                          <Trash2 aria-hidden="true" size={18} />
                         </button>
+                        <span title={itemLockUnavailableReason}>
+                          <button
+                            aria-label={`Lock in minimum ${formatCurrency(item.lockInPrice)} bid for ${item.name}`}
+                            className="inline-flex h-10 items-center justify-center gap-1 rounded-full bg-amber-100 px-3 text-sm font-bold text-amber-800 transition hover:bg-amber-200 hover:text-amber-900"
+                            disabled={Boolean(itemLockUnavailableReason)}
+                            title={itemLockUnavailableReason || "Lock in at minimum price"}
+                            type="button"
+                            onClick={() => requestLockIn(item, item.lockInPrice, "page")}
+                          >
+                            Min
+                            <Lock aria-hidden="true" size={15} />
+                          </button>
+                        </span>
                         <span title={lockInDisabledReason}>
                           <button
-                            className="button"
+                            aria-label={`Lock in ${formatCurrency(bid.amount)} bid for ${item.name}`}
+                            className="inline-flex size-10 items-center justify-center rounded-full bg-green-100 text-green-800 transition hover:bg-green-200 hover:text-green-900"
                             disabled={Boolean(lockInDisabledReason)}
+                            title={lockInDisabledReason || "Lock in current bid"}
+                            type="button"
                             onClick={() => requestLockIn(item, bid.amount, "page")}
                           >
-                            Lock In
+                            <Lock aria-hidden="true" size={18} />
                           </button>
                         </span>
                       </>
@@ -578,7 +600,8 @@ export function GuestDashboard({ auctionId }: Props) {
             animate={{ opacity: 1, y: 0 }}
             className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl"
           >
-            <h2 className="text-2xl font-bold">Lock in bid?</h2>
+            <h2 className="text-2xl font-bold">Lock in {formatCurrency(pendingLockIn.amount)} bid?</h2>
+            <p className="mt-2 font-semibold text-slate-950">{pendingLockIn.item.name}</p>
             <p className="mt-3 text-slate-600">
               By locking in this bid, you are going to pay the price that you bid but you are guaranteed the
               item. You are NOT able to edit or remove a locked-in bid, it is final! Do you want to lock-in?
