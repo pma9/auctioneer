@@ -80,15 +80,13 @@ service cloud.firestore {
       allow read: if isAdmin(auctionId) ||
         isGuest(auctionId) ||
         (signedIn() && resource.data.createdBy == request.auth.uid);
-      allow create: if phoneSignedIn() && request.resource.data.createdBy == request.auth.uid;
+      allow create: if false;
       allow update: if isAdmin(auctionId);
       allow delete: if false;
 
       match /admins/{uid} {
         allow read: if isAdmin(auctionId);
-        allow create: if phoneSignedIn() &&
-          request.auth.uid == uid &&
-          get(/databases/$(database)/documents/auctions/$(auctionId)).data.createdBy == request.auth.uid;
+        allow create: if false;
         allow update, delete: if isAdmin(auctionId);
       }
 
