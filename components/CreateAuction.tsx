@@ -1,18 +1,19 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { ConfirmationResult, onAuthStateChanged, signInWithPhoneNumber, signOut, User } from "firebase/auth";
+import { ConfirmationResult, onAuthStateChanged, signOut, User } from "firebase/auth";
 import { doc, onSnapshot } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { normalizePhoneNumber, US_PHONE_PLACEHOLDER } from "@/lib/auction/phone-normalization";
-import { auth, db, RecaptchaVerifier } from "@/lib/firebase/client";
+import { auth, db } from "@/lib/firebase/client";
+import { usePhoneVerification } from "@/lib/firebase/use-phone-verification";
 
 const DEFAULT_AUCTION_TITLE = "Auction Title";
 
 export function CreateAuction() {
   const router = useRouter();
-  const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
+  const { sendVerificationCode, resetRecaptcha } = usePhoneVerification("new-auction-recaptcha");
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [title, setTitle] = useState("");
@@ -45,8 +46,7 @@ export function CreateAuction() {
     toast.dismiss();
     try {
       const normalizedPhone = normalizePhoneNumber(phone);
-      recaptchaRef.current ??= new RecaptchaVerifier(auth, "new-auction-recaptcha", { size: "invisible" });
-      const result = await signInWithPhoneNumber(auth, normalizedPhone, recaptchaRef.current);
+      const result = await sendVerificationCode(normalizedPhone);
       setConfirmation(result);
     } catch (error) {
       toast(error instanceof Error ? error.message : "Unable to send verification code.");
@@ -57,6 +57,7 @@ export function CreateAuction() {
     event.preventDefault();
     if (!confirmation) return;
     await confirmation.confirm(code);
+    resetRecaptcha();
     toast("Signed in. You can create an auction now.");
   }
 
@@ -89,7 +90,7 @@ export function CreateAuction() {
       if (!response.ok) throw new Error(result.error);
       setAdminDisplayName(submittedAdminDisplayName);
       const auctionId = result.auctionId as string;
-      router.push(`/auctions/${auctionId}/admin`);
+      router.replace(`/auctions/${auctionId}/admin`);
     } catch (error) {
       toast(error instanceof Error ? error.message : "Unable to create auction.");
     }
@@ -101,6 +102,7 @@ export function CreateAuction() {
     setCode("");
     setConfirmation(null);
     toast.dismiss();
+    resetRecaptcha();
     router.replace("/");
   }
 

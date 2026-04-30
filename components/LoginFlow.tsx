@@ -1,16 +1,16 @@
 "use client";
 
-import { FormEvent, useRef, useState } from "react";
-import { ConfirmationResult, signInWithPhoneNumber } from "firebase/auth";
+import { FormEvent, useState } from "react";
+import type { ConfirmationResult } from "firebase/auth";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { US_PHONE_PLACEHOLDER } from "@/lib/auction/phone-normalization";
-import { auth, RecaptchaVerifier } from "@/lib/firebase/client";
+import { usePhoneVerification } from "@/lib/firebase/use-phone-verification";
 
 export function LoginFlow() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
+  const { sendVerificationCode, resetRecaptcha } = usePhoneVerification("guest-login-recaptcha");
   const [auctionId, setAuctionId] = useState(searchParams.get("auctionId") ?? "");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
@@ -33,13 +33,12 @@ export function LoginFlow() {
     }
 
     setSmsRecipientPhone(result.normalizedPhone);
-    recaptchaRef.current ??= new RecaptchaVerifier(auth, "guest-login-recaptcha", { size: "invisible" });
-    const confirmationResult = await signInWithPhoneNumber(
-      auth,
-      result.normalizedPhone,
-      recaptchaRef.current,
-    );
-    setConfirmation(confirmationResult);
+    try {
+      const confirmationResult = await sendVerificationCode(result.normalizedPhone);
+      setConfirmation(confirmationResult);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to send verification code.");
+    }
   }
 
   async function confirmCode(event: FormEvent) {
@@ -60,7 +59,8 @@ export function LoginFlow() {
       return;
     }
 
-    router.push(`/auctions/${auctionId}/guest`);
+    resetRecaptcha();
+    router.replace(`/auctions/${auctionId}/guest`);
   }
 
   return (

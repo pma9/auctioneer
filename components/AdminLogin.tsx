@@ -1,18 +1,19 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
-import { ConfirmationResult, onAuthStateChanged, signInWithPhoneNumber, signOut, User } from "firebase/auth";
+import { FormEvent, useEffect, useState } from "react";
+import { ConfirmationResult, onAuthStateChanged, signOut, User } from "firebase/auth";
 import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { normalizePhoneNumber, US_PHONE_PLACEHOLDER } from "@/lib/auction/phone-normalization";
 import type { Auction } from "@/lib/auction/types";
-import { auth, db, RecaptchaVerifier } from "@/lib/firebase/client";
+import { auth, db } from "@/lib/firebase/client";
+import { usePhoneVerification } from "@/lib/firebase/use-phone-verification";
 
 export function AdminLogin() {
   const router = useRouter();
-  const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
+  const { sendVerificationCode, resetRecaptcha } = usePhoneVerification("admin-login-recaptcha");
   const [user, setUser] = useState<User | null>(null);
   const [adminDisplayName, setAdminDisplayName] = useState("");
   const [auctions, setAuctions] = useState<Auction[] | null>(null);
@@ -61,12 +62,10 @@ export function AdminLogin() {
     toast.dismiss();
     try {
       const normalizedPhone = normalizePhoneNumber(phone);
-      recaptchaRef.current ??= new RecaptchaVerifier(auth, "admin-login-recaptcha", { size: "invisible" });
-      const result = await signInWithPhoneNumber(auth, normalizedPhone, recaptchaRef.current);
+      const result = await sendVerificationCode(normalizedPhone);
       setConfirmation(result);
       setSentPhone(normalizedPhone);
     } catch (error) {
-      resetRecaptcha();
       toast(error instanceof Error ? error.message : "Unable to send verification code.");
     }
   }
@@ -93,11 +92,6 @@ export function AdminLogin() {
     setSentPhone("");
     toast.dismiss();
     resetRecaptcha();
-  }
-
-  function resetRecaptcha() {
-    recaptchaRef.current?.clear();
-    recaptchaRef.current = null;
   }
 
   return (
@@ -163,7 +157,7 @@ export function AdminLogin() {
                   <button
                     className="w-full rounded-2xl border border-slate-200 p-4 text-left transition hover:border-amber-300 hover:bg-amber-50"
                     key={auction.id}
-                    onClick={() => router.push(`/auctions/${auction.id}/admin`)}
+                    onClick={() => router.replace(`/auctions/${auction.id}/admin`)}
                   >
                     <span className="block text-lg font-bold text-slate-950">{auction.title}</span>
                     <span className="mt-1 block text-sm text-slate-500">
