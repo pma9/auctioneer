@@ -24,9 +24,51 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/auctions/$(auctionId)).data.status == "open";
     }
 
+    function itemData(auctionId, itemId) {
+      return get(/databases/$(database)/documents/auctions/$(auctionId)/items/$(itemId)).data;
+    }
+
+    function guestData(auctionId) {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)/auctions/$(auctionId)).data;
+    }
+
+    function validUserProfileCreate(uid) {
+      return signedIn() &&
+        request.auth.uid == uid &&
+        request.resource.data.keys().hasOnly(["displayName"]);
+    }
+
+    function validUserProfileUpdate(uid) {
+      return signedIn() &&
+        request.auth.uid == uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(["displayName"]);
+    }
+
+    function validRegularBidShape(auctionId, itemId, uid) {
+      return request.resource.data.keys().hasOnly([
+          "auctionId",
+          "itemId",
+          "uid",
+          "bidderName",
+          "amount",
+          "type",
+          "createdAt",
+          "updatedAt",
+        ]) &&
+        request.resource.data.auctionId == auctionId &&
+        request.resource.data.itemId == itemId &&
+        request.resource.data.uid == uid &&
+        request.resource.data.bidderName == guestData(auctionId).displayName &&
+        request.resource.data.amount is number &&
+        request.resource.data.amount >= itemData(auctionId, itemId).startingPrice &&
+        request.resource.data.type == "regular" &&
+        request.resource.data.updatedAt == request.time;
+    }
+
     match /users/{uid} {
-      allow read, update: if signedIn() && request.auth.uid == uid;
-      allow create: if signedIn() && request.auth.uid == uid;
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create: if validUserProfileCreate(uid);
+      allow update: if validUserProfileUpdate(uid);
 
       match /auctions/{auctionId} {
         allow read: if signedIn() && request.auth.uid == uid;
@@ -61,15 +103,24 @@ service cloud.firestore {
 
         match /bids/{uid} {
           allow read: if isAdmin(auctionId) || (signedIn() && request.auth.uid == uid);
-          allow create, update: if signedIn() &&
+          allow create: if signedIn() &&
             request.auth.uid == uid &&
             isGuest(auctionId) &&
-            request.resource.data.uid == request.auth.uid &&
-            request.resource.data.auctionId == auctionId &&
-            request.resource.data.itemId == itemId &&
-            request.resource.data.type == "regular" &&
             isAuctionOpen(auctionId) &&
-            get(/databases/$(database)/documents/auctions/$(auctionId)/items/$(itemId)).data.status == "open";
+            itemData(auctionId, itemId).status == "open" &&
+            validRegularBidShape(auctionId, itemId, uid) &&
+            request.resource.data.createdAt == request.time;
+          allow update: if signedIn() &&
+            request.auth.uid == uid &&
+            isGuest(auctionId) &&
+            resource.data.uid == request.auth.uid &&
+            resource.data.auctionId == auctionId &&
+            resource.data.itemId == itemId &&
+            resource.data.type == "regular" &&
+            isAuctionOpen(auctionId) &&
+            itemData(auctionId, itemId).status == "open" &&
+            validRegularBidShape(auctionId, itemId, uid) &&
+            request.resource.data.createdAt == resource.data.createdAt;
           allow delete: if signedIn() &&
             request.auth.uid == uid &&
             resource.data.type == "regular" &&

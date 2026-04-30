@@ -1,5 +1,6 @@
 import { FieldValue, type WriteBatch } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
+import type { VerifiedGuest } from "@/lib/auction/types";
 import { hashPhoneNumber, normalizePhoneNumber } from "@/lib/auction/phone";
 import { adminDb } from "@/lib/firebase/admin";
 import { requireAuctionAdmin, requireUser } from "@/lib/firebase/server-auth";
@@ -99,9 +100,11 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     const { phoneHash } = (await request.json()) as { phoneHash?: string };
     if (!phoneHash) return NextResponse.json({ error: "Existing guest is required." }, { status: 400 });
 
+    const guestRef = adminDb.doc(`auctions/${auctionId}/verifiedGuests/${phoneHash}`);
+    const guestDoc = await guestRef.get();
     const batch = adminDb.batch();
-    batch.delete(adminDb.doc(`auctions/${auctionId}/verifiedGuests/${phoneHash}`));
-    await revokeJoinedAccess(auctionId, phoneHash, batch);
+    batch.delete(guestRef);
+    await revokeJoinedAccess(auctionId, phoneHash, batch, guestDoc.data() as VerifiedGuest | undefined);
     await batch.commit();
 
     return NextResponse.json({ ok: true });
@@ -113,7 +116,20 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   }
 }
 
-async function revokeJoinedAccess(auctionId: string, phoneHash: string, batch: WriteBatch) {
+async function revokeJoinedAccess(
+  auctionId: string,
+  phoneHash: string,
+  batch: WriteBatch,
+  guest?: VerifiedGuest,
+) {
+  const joinedUids = new Set(
+    [guest?.joinedUid, ...(guest?.joinedUids ?? [])].filter((uid): uid is string => typeof uid === "string"),
+  );
+  joinedUids.forEach((uid) => {
+    batch.delete(adminDb.doc(`users/${uid}/auctions/${auctionId}`));
+  });
+
+  // Legacy cleanup for memberships created before per-auction phoneHash was stored.
   const usersSnapshot = await adminDb.collection("users").where("phoneHash", "==", phoneHash).get();
   usersSnapshot.docs.forEach((userDoc) => {
     batch.delete(adminDb.doc(`users/${userDoc.id}/auctions/${auctionId}`));

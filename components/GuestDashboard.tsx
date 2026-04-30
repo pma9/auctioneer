@@ -8,6 +8,7 @@ import {
   collectionGroup,
   deleteDoc,
   doc,
+  getDoc,
   onSnapshot,
   query,
   serverTimestamp,
@@ -92,10 +93,13 @@ export function GuestDashboard({ auctionId }: Props) {
 
   const isAuctionOpen = auction?.status === "open";
   const isAuctionPending = auction?.status === "pending";
+  const isAuctionSettling = auction?.status === "settling";
   const isAuctionClosed = auction?.status === "closed";
   const biddingUnavailableMessage = isAuctionPending
     ? "Bidding has not opened yet. You can browse items until the auction opens."
-    : "This auction is closed. Bids can no longer be changed.";
+    : isAuctionSettling
+      ? "This auction is being closed out. Bids can no longer be changed."
+      : "This auction is closed. Bids can no longer be changed.";
   const activeItems = useMemo(
     () => items.filter((item) => item.status === "open" || item.status === "locked"),
     [items],
@@ -149,8 +153,10 @@ export function GuestDashboard({ auctionId }: Props) {
       return;
     }
 
+    const bidRef = doc(db, `auctions/${auctionId}/items/${selectedItem.id}/bids/${user.uid}`);
+    const existingBid = await getDoc(bidRef);
     await setDoc(
-      doc(db, `auctions/${auctionId}/items/${selectedItem.id}/bids/${user.uid}`),
+      bidRef,
       {
         auctionId,
         itemId: selectedItem.id,
@@ -159,7 +165,7 @@ export function GuestDashboard({ auctionId }: Props) {
         amount,
         type: "regular",
         updatedAt: serverTimestamp(),
-        createdAt: serverTimestamp(),
+        ...(!existingBid.exists() ? { createdAt: serverTimestamp() } : {}),
       },
       { merge: true },
     );
@@ -267,7 +273,13 @@ export function GuestDashboard({ auctionId }: Props) {
       <div className="mx-auto max-w-6xl space-y-6">
         <header className="rounded-3xl bg-slate-950 p-6 text-white shadow-sm">
           <p className="text-sm uppercase tracking-[0.3em] text-amber-300">
-            {isAuctionClosed ? "Auction Closed" : isAuctionPending ? "Auction Pending" : "Guest Dashboard"}
+            {isAuctionClosed
+              ? "Auction Closed"
+              : isAuctionPending
+                ? "Auction Pending"
+                : isAuctionSettling
+                  ? "Auction Closing"
+                  : "Guest Dashboard"}
           </p>
           <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="lg:min-w-0">
@@ -309,6 +321,15 @@ export function GuestDashboard({ auctionId }: Props) {
             <p className="text-md font-semibold uppercase tracking-[0.2em] text-amber-700">Auction Pending</p>
             <p className="mt-2 text-sm leading-6 text-slate-700">
               You can browse the items now. Bidding will be available once the admin opens the auction.
+            </p>
+          </section>
+        )}
+
+        {isAuctionSettling && (
+          <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5">
+            <p className="text-md font-semibold uppercase tracking-[0.2em] text-amber-700">Auction Closing</p>
+            <p className="mt-2 text-sm leading-6 text-slate-700">
+              The admin is closing out the auction. Bids are frozen while final prices are calculated.
             </p>
           </section>
         )}

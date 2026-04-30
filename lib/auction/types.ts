@@ -1,4 +1,4 @@
-export type AuctionStatus = "pending" | "open" | "closed";
+export type AuctionStatus = "pending" | "open" | "settling" | "closed";
 export type BidType = "regular" | "locked";
 export type ItemStatus = "open" | "locked" | "settled" | "removed" | "invalid";
 
@@ -12,6 +12,7 @@ export type Auction = {
   closingNotes?: string;
   createdAt?: unknown;
   openedAt?: unknown;
+  settlingAt?: unknown;
   closedAt?: unknown;
   reopenedAt?: unknown;
   startsAt?: unknown;
@@ -57,6 +58,7 @@ export type VerifiedGuest = {
   createdAt?: unknown;
   updatedAt?: unknown;
   joinedUid?: string;
+  joinedUids?: string[];
 };
 
 export type ItemBidBreakdown = {

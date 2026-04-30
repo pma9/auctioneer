@@ -39,9 +39,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
     batch.set(
       adminDb.doc(`users/${user.uid}/auctions/${auctionId}`),
       {
+        auctionId,
         role: "guest",
+        phoneHash,
+        normalizedPhone: user.phone_number,
         displayName,
         joinedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
       },
       { merge: true },
     );
@@ -49,6 +53,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       guestDoc.ref,
       {
         joinedUid: user.uid,
+        joinedUids: FieldValue.arrayUnion(user.uid),
         normalizedPhone: user.phone_number,
         updatedAt: FieldValue.serverTimestamp(),
       },
