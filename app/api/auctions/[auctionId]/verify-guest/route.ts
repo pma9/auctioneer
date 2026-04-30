@@ -26,7 +26,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return NextResponse.json({
       allowed: true,
       normalizedPhone,
-      displayName: guestDoc.get("displayName") ?? "Guest",
     });
   } catch (error) {
     return NextResponse.json(
