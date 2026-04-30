@@ -9,10 +9,13 @@ export default function Home() {
         <h1 className="mt-5 max-w-4xl text-5xl font-black tracking-tight sm:text-7xl">
           &quot;Lock-in&quot; hybrid Vickrey auctions.
         </h1>
-        <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-600">
-          Auctioneer is a new &quot;Hybrid Vickrey&quot; platform by Polo, combining secret bidding with an
-          instant &quot;Lock-In&quot; race for a guaranteed win! <AuctionRulesModal />
-        </p>
+        <div className="mt-6 max-w-2xl text-lg leading-8 text-slate-600">
+          <p>
+            Auctioneer is a new &quot;Hybrid Vickrey&quot; platform by Polo, combining secret bidding with an
+            instant &quot;Lock-In&quot; race for a guaranteed win!
+          </p>
+          <AuctionRulesModal />
+        </div>
         <div className="mt-10 flex flex-col gap-3 sm:flex-row">
           <Link className="button inline-flex" href="/auctions/new">
             Create an auction
