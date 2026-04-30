@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import Fuse from "fuse.js";
 import { signOut } from "firebase/auth";
 import { motion } from "framer-motion";
 import {
@@ -31,6 +32,7 @@ type Props = {
 const emptyItemForm = {
   name: "",
   notes: "",
+  keywords: "",
   msrp: "",
   startingPrice: "0",
   lockInPrice: "0",
@@ -46,6 +48,7 @@ export function AdminDashboard({ auctionId }: Props) {
   const [items, setItems] = useState<AuctionItem[]>([]);
   const [bids, setBids] = useState<Bid[]>([]);
   const [activeTab, setActiveTab] = useState<AdminTab>("current");
+  const [searchQuery, setSearchQuery] = useState("");
   const [showRemovedItems, setShowRemovedItems] = useState(false);
   const [showInvalidItems, setShowInvalidItems] = useState(true);
   const [itemForm, setItemForm] = useState<ItemForm>(emptyItemForm);
@@ -104,6 +107,7 @@ export function AdminDashboard({ auctionId }: Props) {
     const payload = {
       name: itemForm.name.trim(),
       notes: itemForm.notes.trim(),
+      keywords: itemForm.keywords.trim(),
       msrp: Number(itemForm.msrp || 0),
       startingPrice: Number(itemForm.startingPrice),
       lockInPrice: Number(itemForm.lockInPrice),
@@ -197,6 +201,7 @@ export function AdminDashboard({ auctionId }: Props) {
     setItemForm({
       name: item.name,
       notes: item.notes ?? "",
+      keywords: item.keywords ?? "",
       msrp: item.msrp ? String(item.msrp) : "",
       startingPrice: needsStartingPrice ? "" : String(item.startingPrice ?? 0),
       lockInPrice: needsLockInPrice ? "" : String(item.lockInPrice ?? 0),
@@ -239,6 +244,39 @@ export function AdminDashboard({ auctionId }: Props) {
       return true;
     })
     .sort((a, b) => Number(b.status === "invalid") - Number(a.status === "invalid"));
+  const trimmedSearchQuery = searchQuery.trim();
+  const currentRowsFuse = useMemo(
+    () =>
+      new Fuse(analytics.currentRows, {
+        keys: ["item.name", "item.notes", "item.keywords", "topBid.bidderName", "secondBid.bidderName"],
+        threshold: 0.35,
+        ignoreLocation: true,
+      }),
+    [analytics.currentRows],
+  );
+  const allItemsFuse = useMemo(
+    () =>
+      new Fuse(allTableItems, {
+        keys: ["name", "notes", "keywords"],
+        threshold: 0.35,
+        ignoreLocation: true,
+      }),
+    [allTableItems],
+  );
+  const filteredCurrentRows = useMemo(
+    () =>
+      trimmedSearchQuery
+        ? currentRowsFuse.search(trimmedSearchQuery).map((result) => result.item)
+        : analytics.currentRows,
+    [analytics.currentRows, currentRowsFuse, trimmedSearchQuery],
+  );
+  const filteredAllTableItems = useMemo(
+    () =>
+      trimmedSearchQuery
+        ? allItemsFuse.search(trimmedSearchQuery).map((result) => result.item)
+        : allTableItems,
+    [allItemsFuse, allTableItems, trimmedSearchQuery],
+  );
 
   if (!user) return null;
 
@@ -304,25 +342,39 @@ export function AdminDashboard({ auctionId }: Props) {
         </section>
 
         <section className="space-y-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="order-2 flex min-w-max rounded-full bg-white p-1 shadow-sm sm:order-1">
-              <button
-                className={`tab whitespace-nowrap ${activeTab === "current" ? "tab-active" : ""}`}
-                onClick={() => setActiveTab("current")}
-              >
-                Current bids
-              </button>
-              <button
-                className={`tab whitespace-nowrap ${activeTab === "all" ? "tab-active" : ""}`}
-                onClick={() => setActiveTab("all")}
-              >
-                All items
+          <div className="sticky top-0 z-20 -mx-4 space-y-3 bg-slate-100/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="order-2 flex min-w-max rounded-full bg-white p-1 shadow-sm sm:order-1">
+                <button
+                  className={`tab whitespace-nowrap ${activeTab === "current" ? "tab-active" : ""}`}
+                  onClick={() => setActiveTab("current")}
+                >
+                  Current bids
+                </button>
+                <button
+                  className={`tab whitespace-nowrap ${activeTab === "all" ? "tab-active" : ""}`}
+                  onClick={() => setActiveTab("all")}
+                >
+                  All items
+                </button>
+              </div>
+              <button className="button order-1 inline-flex gap-2 sm:order-2" onClick={openNewItemModal}>
+                <Plus size={18} />
+                Add item
               </button>
             </div>
-            <button className="button order-1 inline-flex gap-2 sm:order-2" onClick={openNewItemModal}>
-              <Plus size={18} />
-              Add item
-            </button>
+            <input
+              aria-label={activeTab === "current" ? "Search current bids" : "Search all items"}
+              className="input"
+              placeholder={
+                activeTab === "current"
+                  ? "Search bids by item, notes, keywords, or bidder"
+                  : "Search items by name, notes, or keywords"
+              }
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+            />
           </div>
 
           {activeTab === "current" ? (
@@ -338,7 +390,7 @@ export function AdminDashboard({ auctionId }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {analytics.currentRows.map((row) => (
+                    {filteredCurrentRows.map((row) => (
                       <tr className="border-t border-slate-100" key={row.item.id}>
                         <td className="py-3 font-medium">{row.item.name}</td>
                         <td>{formatBid(row.topBid)}</td>
@@ -346,6 +398,13 @@ export function AdminDashboard({ auctionId }: Props) {
                         <td>{isLockedIn(row.item, row.topBid) ? "Lock In" : "-"}</td>
                       </tr>
                     ))}
+                    {!filteredCurrentRows.length && (
+                      <tr className="border-t border-slate-100">
+                        <td className="py-6 text-center text-slate-500" colSpan={4}>
+                          {trimmedSearchQuery ? "No current bids match your search." : "No current bids yet."}
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -392,13 +451,20 @@ export function AdminDashboard({ auctionId }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {allTableItems.map((item) => (
+                    {filteredAllTableItems.map((item) => (
                       <tr
                         className={`border-t border-slate-100 ${item.status === "invalid" ? "bg-yellow-50" : ""}`}
                         key={item.id}
                       >
                         <td className="py-3 font-medium">{item.name}</td>
-                        <td className="max-w-xs text-slate-600">{item.notes || "-"}</td>
+                        <td className="max-w-xs text-slate-600">
+                          <p>{item.notes || "-"}</p>
+                          {item.keywords && (
+                            <p className="mt-1 text-xs font-semibold text-slate-400">
+                              Keywords: {item.keywords}
+                            </p>
+                          )}
+                        </td>
                         <td>{formatCurrency(item.msrp)}</td>
                         <td>{formatCurrency(item.startingPrice)}</td>
                         <td>{formatCurrency(item.lockInPrice)}</td>
@@ -432,6 +498,13 @@ export function AdminDashboard({ auctionId }: Props) {
                         </td>
                       </tr>
                     ))}
+                    {!filteredAllTableItems.length && (
+                      <tr className="border-t border-slate-100">
+                        <td className="py-6 text-center text-slate-500" colSpan={7}>
+                          {trimmedSearchQuery ? "No items match your search." : "No items to show."}
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -465,6 +538,15 @@ export function AdminDashboard({ auctionId }: Props) {
                   className="input mt-1 min-h-24"
                   value={itemForm.notes}
                   onChange={(event) => setItemForm({ ...itemForm, notes: event.target.value })}
+                />
+              </label>
+              <label className="label">
+                Keywords
+                <input
+                  className="input mt-1"
+                  placeholder="Hidden from guests; used for search"
+                  value={itemForm.keywords}
+                  onChange={(event) => setItemForm({ ...itemForm, keywords: event.target.value })}
                 />
               </label>
               <div className="grid gap-3 sm:grid-cols-3">

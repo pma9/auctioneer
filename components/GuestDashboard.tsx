@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
+import Fuse from "fuse.js";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { collection, collectionGroup, doc, onSnapshot, query, where } from "firebase/firestore";
 import Link from "next/link";
@@ -52,6 +53,7 @@ export function GuestDashboard({ auctionId }: Props) {
   const [items, setItems] = useState<AuctionItem[]>([]);
   const [myBids, setMyBids] = useState<Bid[]>([]);
   const [activeTab, setActiveTab] = useState<"auction" | "bids">("auction");
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedItem, setSelectedItem] = useState<AuctionItem | null>(null);
   const [bidAmount, setBidAmount] = useState("");
   const [bidError, setBidError] = useState("");
@@ -124,6 +126,55 @@ export function GuestDashboard({ auctionId }: Props) {
   const invalidBidRows = useMemo(
     () => bidRows.filter(({ item }) => isLockedByAnotherGuest(item, user?.uid)),
     [bidRows, user?.uid],
+  );
+  const trimmedSearchQuery = searchQuery.trim();
+  const activeItemsFuse = useMemo(
+    () =>
+      new Fuse(activeItems, {
+        keys: ["name", "notes", "keywords"],
+        threshold: 0.35,
+        ignoreLocation: true,
+      }),
+    [activeItems],
+  );
+  const currentBidRowsFuse = useMemo(
+    () =>
+      new Fuse(currentBidRows, {
+        keys: ["item.name", "item.notes", "item.keywords"],
+        threshold: 0.35,
+        ignoreLocation: true,
+      }),
+    [currentBidRows],
+  );
+  const invalidBidRowsFuse = useMemo(
+    () =>
+      new Fuse(invalidBidRows, {
+        keys: ["item.name", "item.notes", "item.keywords"],
+        threshold: 0.35,
+        ignoreLocation: true,
+      }),
+    [invalidBidRows],
+  );
+  const filteredActiveItems = useMemo(
+    () =>
+      trimmedSearchQuery
+        ? activeItemsFuse.search(trimmedSearchQuery).map((result) => result.item)
+        : activeItems,
+    [activeItems, activeItemsFuse, trimmedSearchQuery],
+  );
+  const filteredCurrentBidRows = useMemo(
+    () =>
+      trimmedSearchQuery
+        ? currentBidRowsFuse.search(trimmedSearchQuery).map((result) => result.item)
+        : currentBidRows,
+    [currentBidRows, currentBidRowsFuse, trimmedSearchQuery],
+  );
+  const filteredInvalidBidRows = useMemo(
+    () =>
+      trimmedSearchQuery
+        ? invalidBidRowsFuse.search(trimmedSearchQuery).map((result) => result.item)
+        : invalidBidRows,
+    [invalidBidRows, invalidBidRowsFuse, trimmedSearchQuery],
   );
   const currentBids = useMemo(() => currentBidRows.map(({ bid }) => bid), [currentBidRows]);
   const summary = useMemo(
@@ -390,7 +441,7 @@ export function GuestDashboard({ auctionId }: Props) {
         </section>
 
         {!isAuctionClosed && (
-          <>
+          <div className="sticky top-0 z-20 -mx-4 space-y-3 bg-slate-100/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
             <div className="flex rounded-full bg-white p-1 shadow-sm">
               <button
                 className={`tab ${activeTab === "auction" ? "tab-active" : ""}`}
@@ -405,14 +456,26 @@ export function GuestDashboard({ auctionId }: Props) {
                 My Bids
               </button>
             </div>
-          </>
+            <input
+              aria-label={activeTab === "auction" ? "Search auction items" : "Search my bids"}
+              className="input"
+              placeholder={
+                activeTab === "auction"
+                  ? "Search auction items by name, description, or keyword"
+                  : "Search my bids by item, description, or keyword"
+              }
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+            />
+          </div>
         )}
 
         {isAuctionClosed ? (
           <ClosedSettlement settlement={settlement} />
         ) : activeTab === "auction" ? (
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {activeItems.map((item) => {
+            {filteredActiveItems.map((item) => {
               const myBid = bidsByItem.get(item.id);
               const lockedByAnotherGuest = isLockedByAnotherGuest(item, user.uid);
               return (
@@ -467,12 +530,19 @@ export function GuestDashboard({ auctionId }: Props) {
                 </motion.article>
               );
             })}
+            {!filteredActiveItems.length && (
+              <p className="rounded-2xl bg-white p-4 text-sm text-slate-600 shadow-sm md:col-span-2 xl:col-span-3">
+                {trimmedSearchQuery
+                  ? "No auction items match your search."
+                  : "No auction items are available."}
+              </p>
+            )}
           </section>
         ) : (
           <section className="space-y-6">
             <div className="space-y-3">
-              {currentBidRows.length ? (
-                currentBidRows.map(({ bid, item }) => {
+              {filteredCurrentBidRows.length ? (
+                filteredCurrentBidRows.map(({ bid, item }) => {
                   const itemLockUnavailableReason = !isAuctionOpen
                     ? biddingUnavailableMessage
                     : item.status !== "open"
@@ -553,12 +623,14 @@ export function GuestDashboard({ auctionId }: Props) {
                 })
               ) : (
                 <p className="rounded-2xl bg-white p-4 text-sm text-slate-600 shadow-sm">
-                  You have no current bids for this auction.
+                  {trimmedSearchQuery
+                    ? "No current bids match your search."
+                    : "You have no current bids for this auction."}
                 </p>
               )}
             </div>
 
-            {invalidBidRows.length > 0 && (
+            {filteredInvalidBidRows.length > 0 && (
               <div className="space-y-3">
                 <div className="px-5">
                   <p className="text-sm font-semibold uppercase tracking-[0.2em] text-red-700">
@@ -568,7 +640,7 @@ export function GuestDashboard({ auctionId }: Props) {
                     These bids are no longer active because another guest locked in the item.
                   </p>
                 </div>
-                {invalidBidRows.map(({ bid, item }) => (
+                {filteredInvalidBidRows.map(({ bid, item }) => (
                   <motion.div
                     layout
                     className="card flex flex-col gap-1 border-red-100 bg-red-50/60"

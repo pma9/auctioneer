@@ -5,6 +5,7 @@ import { normalizeItemName } from "@/lib/auction/calculations";
 const rowSchema = z.object({
   name: z.string().trim().min(1),
   notes: z.string().default(""),
+  keywords: z.string().default(""),
   msrp: z.number().nonnegative().default(0),
   startingPrice: z.number().nonnegative(),
   lockInPrice: z.number().nonnegative(),
@@ -23,11 +24,12 @@ export type SkippedSheetRow = {
 };
 
 type SheetCell = string | number | boolean | null | undefined;
-type SheetField = "name" | "notes" | "msrp" | "startingPrice" | "lockInPrice";
+type SheetField = "name" | "notes" | "keywords" | "msrp" | "startingPrice" | "lockInPrice";
 
 const fieldAliases: Record<SheetField, string[]> = {
   name: ["name", "item", "item name", "title", "product", "description"],
   notes: ["notes", "note", "details", "item notes", "description"],
+  keywords: ["keywords", "keyword", "search", "search terms", "tags"],
   msrp: ["msrp", "retail", "retail price", "value", "estimated value"],
   startingPrice: ["starting price", "start price", "starting bid", "opening bid", "minimum bid", "min bid"],
   lockInPrice: ["lock in price", "lock-in price", "lockin price", "buy now", "buy now price", "instant buy"],
@@ -39,6 +41,7 @@ const fallbackIndexes: Record<SheetField, number> = {
   msrp: 2,
   startingPrice: 3,
   lockInPrice: 4,
+  keywords: 5,
 };
 
 export function extractSheetId(sheetUrlOrId: string) {
@@ -100,6 +103,7 @@ function parseAuctionItemRow(row: SheetCell[], headerMap: Map<string, number>, s
   const parsed = rowSchema.safeParse({
     name,
     notes: stringValue(valueAt(row, headerMap, "notes")),
+    keywords: stringValue(valueAt(row, headerMap, "keywords")),
     msrp: msrp.value,
     startingPrice: startingPrice.value,
     lockInPrice: lockInPrice.value,

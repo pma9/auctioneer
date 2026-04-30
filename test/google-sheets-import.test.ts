@@ -4,8 +4,8 @@ import { parseAuctionItemRows } from "@/lib/google/sheets";
 describe("google sheets import parsing", () => {
   it("matches imperfect headers and parses currency values", () => {
     const { items, skippedRows } = parseAuctionItemRows([
-      ["Item Name", "Item Notes", "Retail Price", "Starting Bid", "Buy Now Price"],
-      ["Signed Jersey", "Framed with certificate", "$1,250", "$100", "1,500.00"],
+      ["Item Name", "Item Notes", "Retail Price", "Starting Bid", "Buy Now Price", "Keywords"],
+      ["Signed Jersey", "Framed with certificate", "$1,250", "$100", "1,500.00", "sports memorabilia"],
     ]);
 
     expect(skippedRows).toHaveLength(0);
@@ -15,6 +15,7 @@ describe("google sheets import parsing", () => {
       msrp: 1250,
       startingPrice: 100,
       lockInPrice: 1500,
+      keywords: "sports memorabilia",
       normalizedName: "signed jersey",
       sourceRow: 2,
     });
@@ -23,8 +24,18 @@ describe("google sheets import parsing", () => {
 
   it("can read item fields beyond the first five columns", () => {
     const { items } = parseAuctionItemRows([
-      ["Ignored", "Title", "Details", "Retail", "Ignored", "Ignored", "Opening Bid", "Instant Buy"],
-      ["x", "VIP Tickets", "Four seats", "$800", "x", "x", "$250", "$1,000"],
+      [
+        "Ignored",
+        "Title",
+        "Details",
+        "Retail",
+        "Ignored",
+        "Search Terms",
+        "Ignored",
+        "Opening Bid",
+        "Instant Buy",
+      ],
+      ["x", "VIP Tickets", "Four seats", "$800", "x", "concert seats", "x", "$250", "$1,000"],
     ]);
 
     expect(items[0]).toMatchObject({
@@ -33,6 +44,19 @@ describe("google sheets import parsing", () => {
       msrp: 800,
       startingPrice: 250,
       lockInPrice: 1000,
+      keywords: "concert seats",
+    });
+  });
+
+  it("uses the sixth column as keywords when headers are positional", () => {
+    const { items } = parseAuctionItemRows([
+      ["Item", "Notes", "MSRP", "Start Price", "Lock-In Price", "Keywords"],
+      ["Signed Ball", "Game used", "$150", "$50", "$250", "baseball autograph"],
+    ]);
+
+    expect(items[0]).toMatchObject({
+      name: "Signed Ball",
+      keywords: "baseball autograph",
     });
   });
 

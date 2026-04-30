@@ -24,6 +24,7 @@ export type AuctionItem = {
   name: string;
   normalizedName: string;
   notes: string;
+  keywords?: string;
   msrp: number;
   startingPrice: number;
   lockInPrice: number;
