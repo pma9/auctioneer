@@ -523,7 +523,7 @@ export function GuestDashboard({ auctionId }: Props) {
                             <span title={itemLockUnavailableReason}>
                               <button
                                 aria-label={`Lock in minimum ${formatCurrency(item.lockInPrice)} bid for ${item.name}`}
-                                className="inline-flex h-10 items-center justify-center gap-1 rounded-full bg-green-100 px-3 text-sm font-bold text-green-800 transition hover:bg-green-200 hover:text-green-900"
+                                className="inline-flex h-10 items-center justify-center gap-1 rounded-full bg-amber-100 px-3 text-sm font-bold text-amber-800 transition hover:bg-amber-200 hover:text-amber-900"
                                 disabled={Boolean(itemLockUnavailableReason)}
                                 title={itemLockUnavailableReason || "Lock in at minimum price"}
                                 type="button"
@@ -713,8 +713,9 @@ export function GuestDashboard({ auctionId }: Props) {
             <h2 className="text-2xl font-bold">Lock in {formatCurrency(pendingLockIn.amount)} bid?</h2>
             <p className="mt-2 font-semibold text-slate-950">{pendingLockIn.item.name}</p>
             <p className="mt-3 text-slate-600">
-              By locking in this bid, you are going to pay the price that you bid but you are guaranteed the
-              item. You are NOT able to edit or remove a locked-in bid, it is final! Do you want to lock-in?
+              By locking in this bid, you are going to pay{" "}
+              <strong>{formatCurrency(pendingLockIn.amount)}</strong> but you are guaranteed the item. You are
+              NOT able to edit or remove a locked-in bid, it is final! Do you want to lock-in?
             </p>
             <div className="mt-6 flex flex-col gap-2 sm:flex-row">
               <button className="button flex-1" disabled={isLockingIn} onClick={confirmLockIn}>
