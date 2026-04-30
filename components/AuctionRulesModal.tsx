@@ -20,7 +20,7 @@ const rulesSections = [
       },
       {
         label: "The Winner's Discount",
-        text: "If you have the highest bid when the timer runs out, you win!. However, you only pay the second-highest bid amount (or the starting price if you were the only bidder). It pays to bid your true maximum!.",
+        text: "If you have the highest bid when the timer runs out, you win! However, you only pay the second-highest bid amount (or the starting price if you were the only bidder). It pays to bid your true maximum!",
       },
       {
         label: "Handling Ties",
@@ -41,7 +41,7 @@ const rulesSections = [
       },
       {
         label: "The Catch",
-        text: 'Unlike regular bids, a "Lock-In" bid is a final sale at your exact bid price. No Vickrey discounts here—just the guaranteed prize!.',
+        text: 'Unlike regular bids, a "Lock-In" bid is a final sale at your exact bid price. No Vickrey discounts here—just the guaranteed prize!',
       },
     ],
   },
@@ -142,6 +142,16 @@ export function AuctionRulesModal({
             </div>
 
             <p className="mt-6 font-semibold text-slate-950">Good luck, and happy bidding!</p>
+
+            <div className="mt-6 flex justify-center border-t border-slate-200 pt-6">
+              <button
+                className="button inline-flex w-full sm:w-auto"
+                type="button"
+                onClick={() => setIsOpen(false)}
+              >
+                Close
+              </button>
+            </div>
           </motion.div>
         </div>
       )}
