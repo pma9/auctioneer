@@ -37,6 +37,7 @@ export function GuestDashboard({ auctionId }: Props) {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [auction, setAuction] = useState<Auction | null>(null);
+  const [guestDisplayName, setGuestDisplayName] = useState("Guest");
   const [items, setItems] = useState<AuctionItem[]>([]);
   const [myBids, setMyBids] = useState<Bid[]>([]);
   const [activeTab, setActiveTab] = useState<"auction" | "bids">("auction");
@@ -71,6 +72,17 @@ export function GuestDashboard({ auctionId }: Props) {
       query(collectionGroup(db, "bids"), where("auctionId", "==", auctionId), where("uid", "==", user.uid)),
       (snapshot) => setMyBids(snapshot.docs.map((bidDoc) => ({ id: bidDoc.id, ...bidDoc.data() }) as Bid)),
     );
+  }, [auctionId, user]);
+
+  useEffect(() => {
+    if (!user) {
+      setGuestDisplayName("Guest");
+      return;
+    }
+
+    return onSnapshot(doc(db, `users/${user.uid}/auctions/${auctionId}`), (snapshot) => {
+      setGuestDisplayName(String(snapshot.get("displayName") ?? "Guest"));
+    });
   }, [auctionId, user]);
 
   const isAuctionOpen = auction?.status === "open";
@@ -261,13 +273,7 @@ export function GuestDashboard({ auctionId }: Props) {
       <div className="mx-auto max-w-6xl space-y-6">
         <header className="rounded-3xl bg-slate-950 p-6 text-white shadow-sm">
           <p className="text-sm uppercase tracking-[0.3em] text-amber-300">
-            {isAuctionClosed
-              ? "Auction Closed"
-              : isAuctionPending
-                ? "Auction Pending"
-                : isAuctionSettling
-                  ? "Auction Closing"
-                  : "Guest Dashboard"}
+            {guestDisplayName}&apos;s Dashboard
           </p>
           <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="lg:min-w-0">
