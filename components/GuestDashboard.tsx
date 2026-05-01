@@ -449,10 +449,10 @@ export function GuestDashboard({ auctionId }: Props) {
           </section>
         )}
 
-        <section className="grid gap-3 md:grid-cols-2">
+        <section className="grid gap-3 grid-cols-2">
           {isAuctionClosed ? (
             <>
-              <SummaryCard label="Amount Owed" value={formatCurrency(settlement.totalOwed)} />
+              <SummaryCard label="Amount Due" value={formatCurrency(settlement.totalOwed)} />
               <SummaryCard label="Items Won" value={String(settlement.winningItems.length)} />
             </>
           ) : (
@@ -938,13 +938,13 @@ function ClosedSettlement({ settlement }: { settlement: Settlement }) {
           <p className="text-sm text-slate-600">{settlement.winningItems.length} item(s) won</p>
         </div>
         {settlement.winningItems.length ? (
-          <div className="mt-5 overflow-x-auto">
-            <table className="w-full min-w-[560px] text-left text-sm">
+          <div className="mt-5">
+            <table className="w-full table-fixed text-left text-xs sm:text-sm">
               <thead className="text-slate-500">
                 <tr>
-                  <th className="py-3">Item</th>
-                  <th>Your bid</th>
-                  <th>
+                  <th className="w-auto py-2 pr-2 sm:py-3">Item</th>
+                  <th className="w-20 py-2 pr-2 text-right sm:w-24 sm:py-3">Your bid</th>
+                  <th className="w-24 py-2 text-right sm:w-28 sm:py-3">
                     <span className="group relative inline-flex cursor-help items-center gap-1" tabIndex={0}>
                       Final price
                       <span
@@ -961,9 +961,20 @@ function ClosedSettlement({ settlement }: { settlement: Settlement }) {
               <tbody>
                 {settlement.winningItems.map(({ item, bid, finalPrice }) => (
                   <tr className="border-t border-slate-100" key={item.id}>
-                    <td className="py-3 font-medium">{item.name}</td>
-                    <td>{formatCurrency(bid?.amount ?? item.winningBid ?? 0)}</td>
-                    <td className="font-semibold text-green-700">{formatCurrency(finalPrice)}</td>
+                    <td className="py-2 pr-2 align-top font-medium leading-5 text-slate-900 sm:py-3">
+                      <span className="block whitespace-normal wrap-break-word">{item.name}</span>
+                    </td>
+                    <td className="py-2 pr-2 text-right align-top whitespace-nowrap text-slate-700 sm:py-3">
+                      <span className="inline-flex items-center justify-end gap-1">
+                        {bid?.type === "locked" ? (
+                          <Lock className="h-3.5 w-3.5 text-slate-500" aria-label="Locked in" />
+                        ) : null}
+                        <span>{formatCurrency(bid?.amount ?? item.winningBid ?? 0)}</span>
+                      </span>
+                    </td>
+                    <td className="py-2 text-right align-top whitespace-nowrap font-semibold text-green-700 sm:py-3">
+                      {formatCurrency(finalPrice)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -979,21 +990,23 @@ function ClosedSettlement({ settlement }: { settlement: Settlement }) {
       <div className="card overflow-hidden">
         <h2 className="text-2xl font-bold">Losing bids</h2>
         {settlement.losingBids.length ? (
-          <div className="mt-5 overflow-x-auto">
-            <table className="w-full min-w-[520px] text-left text-sm">
+          <div className="mt-5">
+            <table className="w-full table-fixed text-left text-xs sm:text-sm">
               <thead className="text-slate-500">
                 <tr>
-                  <th className="py-3">Item</th>
-                  <th>Your bid</th>
-                  <th>Status</th>
+                  <th className="w-auto py-2 pr-2 sm:py-3">Item</th>
+                  <th className="w-20 py-2 pr-2 text-right sm:w-24 sm:py-3">Your bid</th>
                 </tr>
               </thead>
               <tbody>
                 {settlement.losingBids.map(({ item, bid }) => (
                   <tr className="border-t border-slate-100" key={bid.itemId}>
-                    <td className="py-3 font-medium">{item.name}</td>
-                    <td>{formatCurrency(bid.amount)}</td>
-                    <td className="font-semibold text-slate-600">Lost</td>
+                    <td className="py-2 pr-2 align-top font-medium leading-5 text-slate-900 sm:py-3">
+                      <span className="block whitespace-normal wrap-break-word">{item.name}</span>
+                    </td>
+                    <td className="py-2 pr-2 text-right align-top whitespace-nowrap text-slate-700 sm:py-3">
+                      {formatCurrency(bid.amount)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
