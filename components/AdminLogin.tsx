@@ -172,9 +172,15 @@ export function AdminLogin() {
           )
         ) : (
           <div className="mt-8 space-y-5">
-            <div className="flex flex-col gap-3 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
-              <span>Signed in as {adminDisplayName || user.phoneNumber}</span>
-              <button className="font-semibold text-slate-950" onClick={switchAccount}>
+            <div className="flex flex-row items-center justify-between gap-3 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
+              <span className="min-w-0 flex-1 wrap-break-word">
+                Signed in as {adminDisplayName || user.phoneNumber}
+              </span>
+              <button
+                type="button"
+                className="shrink-0 whitespace-nowrap font-semibold text-slate-950"
+                onClick={switchAccount}
+              >
                 Logout
               </button>
             </div>
