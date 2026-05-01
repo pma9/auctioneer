@@ -13,14 +13,6 @@ export function usePhoneVerification(recaptchaContainerId: string) {
     if (typeof document === "undefined") return;
 
     document.getElementById(recaptchaContainerId)?.replaceChildren();
-    document.querySelectorAll(".grecaptcha-badge").forEach((badge) => {
-      const badgeParent = badge.parentElement;
-      if (badgeParent && badgeParent !== document.body && badgeParent.childElementCount === 1) {
-        badgeParent.remove();
-        return;
-      }
-      badge.remove();
-    });
   }, [recaptchaContainerId]);
 
   const sendVerificationCode = useCallback(

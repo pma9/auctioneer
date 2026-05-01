@@ -6,6 +6,7 @@ import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { RecaptchaLegalNotice } from "@/components/RecaptchaLegalNotice";
 import { SubmittingButton } from "@/components/SubmittingButton";
 import { normalizePhoneNumber, US_PHONE_PLACEHOLDER } from "@/lib/auction/phone-normalization";
 import type { Auction } from "@/lib/auction/types";
@@ -142,6 +143,7 @@ export function AdminLogin() {
               >
                 Send admin sign-in code
               </SubmittingButton>
+              <RecaptchaLegalNotice />
             </form>
           ) : (
             <form className="mt-8 space-y-4" onSubmit={verifyCode}>

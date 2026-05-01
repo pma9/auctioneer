@@ -128,3 +128,9 @@ button:disabled {
   background: #0f172a;
   color: white;
 }
+
+/* Invisible phone reCAPTCHA: keep badge in DOM (removing it breaks another sign-in in the same tab). */
+.grecaptcha-badge {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}

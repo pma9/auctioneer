@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import type { ConfirmationResult } from "firebase/auth";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
+import { RecaptchaLegalNotice } from "@/components/RecaptchaLegalNotice";
 import { SubmittingButton } from "@/components/SubmittingButton";
 import { US_PHONE_PLACEHOLDER } from "@/lib/auction/phone-normalization";
 import { usePhoneVerification } from "@/lib/firebase/use-phone-verification";
@@ -116,6 +117,7 @@ export function LoginFlow() {
             >
               Verify and send code
             </SubmittingButton>
+            <RecaptchaLegalNotice />
           </form>
         ) : (
           <form className="mt-6 space-y-4" onSubmit={confirmCode}>

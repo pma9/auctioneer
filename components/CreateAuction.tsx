@@ -5,6 +5,7 @@ import { ConfirmationResult, onAuthStateChanged, signOut, User } from "firebase/
 import { doc, onSnapshot } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { RecaptchaLegalNotice } from "@/components/RecaptchaLegalNotice";
 import { SubmittingButton } from "@/components/SubmittingButton";
 import { normalizePhoneNumber, US_PHONE_PLACEHOLDER } from "@/lib/auction/phone-normalization";
 import { auth, db } from "@/lib/firebase/client";
@@ -174,6 +175,7 @@ export function CreateAuction() {
                 >
                   Send sign-in code
                 </SubmittingButton>
+                <RecaptchaLegalNotice />
               </form>
             )}
             <div id="new-auction-recaptcha" />
