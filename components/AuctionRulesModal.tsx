@@ -12,6 +12,15 @@ type Props = {
 
 const rulesSections = [
   {
+    title: "The Basics",
+    items: [
+      {
+        label: "TL;DR",
+        text: "Place your sealed (private) bids. Once the auction closes, the highest bidder wins but only pays the second-highest bid price. If you bid equal to or higher than the lock-in price, you can lock-in your bid with no discount to guarantee the item. Please read more below.",
+      },
+    ],
+  },
+  {
     title: 'The "Sealed Bid" Surprise',
     items: [
       {
