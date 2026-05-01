@@ -149,9 +149,14 @@ export function AdminLogin() {
             <form className="mt-8 space-y-4" onSubmit={verifyCode}>
               <input
                 className="input"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                autoCorrect="off"
+                autoCapitalize="off"
                 placeholder="123456"
                 value={code}
-                onChange={(event) => setCode(event.target.value)}
+                onInput={(event) => setCode(event.currentTarget.value)}
+                onChange={(event) => setCode(event.currentTarget.value)}
                 required
               />
               <SubmittingButton

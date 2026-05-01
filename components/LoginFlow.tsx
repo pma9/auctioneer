@@ -123,9 +123,14 @@ export function LoginFlow() {
           <form className="mt-6 space-y-4" onSubmit={confirmCode}>
             <input
               className="input"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              autoCorrect="off"
+              autoCapitalize="off"
               placeholder="SMS code"
               value={code}
-              onChange={(event) => setCode(event.target.value)}
+              onInput={(event) => setCode(event.currentTarget.value)}
+              onChange={(event) => setCode(event.currentTarget.value)}
               required
             />
             <p className="text-sm text-slate-600">Enter the code sent to {smsRecipientPhone}.</p>

@@ -141,9 +141,14 @@ export function CreateAuction() {
                 <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
                   <input
                     className="input"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    autoCorrect="off"
+                    autoCapitalize="off"
                     placeholder="SMS code"
                     value={code}
-                    onChange={(event) => setCode(event.target.value)}
+                    onInput={(event) => setCode(event.currentTarget.value)}
+                    onChange={(event) => setCode(event.currentTarget.value)}
                   />
                   <SubmittingButton
                     className="button"
