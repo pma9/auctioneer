@@ -422,12 +422,8 @@ export function AdminDashboard({ auctionId }: Props) {
           </div>
         </header>
 
-        <section
-          className={`grid gap-4 ${auction?.status === "closed" ? "lg:grid-cols-2 lg:items-start" : ""}`}
-        >
-          <section
-            className={`grid grid-cols-2 gap-3 sm:gap-4 ${auction?.status === "open" ? "lg:grid-cols-4" : ""}`}
-          >
+        <section className="grid gap-4">
+          <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
             <Stat label="Revenue" value={formatCurrency(analytics.revenue)} />
             <Stat label="Total bids" value={String(analytics.totalBids)} />
             <Stat label="Items with bid" value={String(analytics.itemsWithBids)} />
@@ -453,11 +449,11 @@ export function AdminDashboard({ auctionId }: Props) {
               </div>
 
               {settlement.winners.length ? (
-                <div className="mt-5 space-y-3">
+                <div className="mt-5 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
                   {settlement.winners.map((winner) => {
                     const isExpanded = expandedWinnerUids.has(winner.uid);
                     return (
-                      <div className="rounded-2xl border border-slate-100 bg-white" key={winner.uid}>
+                      <div className="h-fit rounded-2xl border border-slate-100 bg-white" key={winner.uid}>
                         <button
                           className="flex w-full items-center justify-between gap-3 p-4 text-left"
                           type="button"
