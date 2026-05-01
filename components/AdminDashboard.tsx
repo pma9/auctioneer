@@ -441,14 +441,18 @@ export function AdminDashboard({ auctionId }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredCurrentRows.map((row) => (
-                      <tr className="border-t border-slate-100" key={row.item.id}>
-                        <td className="py-3 font-medium">{row.item.name}</td>
-                        <td>{formatBid(row.topBid)}</td>
-                        <td>{formatBid(row.secondBid)}</td>
-                        <td>{isLockedIn(row.item, row.topBid) ? "Lock In" : "-"}</td>
-                      </tr>
-                    ))}
+                    {filteredCurrentRows.map((row) => {
+                      const lockedIn = isLockedIn(row.item, row.topBid);
+
+                      return (
+                        <tr className="border-t border-slate-100" key={row.item.id}>
+                          <td className="py-3 font-medium">{row.item.name}</td>
+                          <td>{lockedIn ? "-" : formatBid(row.topBid)}</td>
+                          <td>{lockedIn ? "-" : formatSecondBid(row.item, row.secondBid)}</td>
+                          <td>{formatLockedInBid(row.item, row.topBid)}</td>
+                        </tr>
+                      );
+                    })}
                     {!filteredCurrentRows.length && (
                       <tr className="border-t border-slate-100">
                         <td className="py-6 text-center text-slate-500" colSpan={4}>
@@ -787,6 +791,21 @@ function NumberInput({
 
 function formatBid(bid?: Bid) {
   return bid ? `${formatCurrency(bid.amount)} by ${bid.bidderName}` : "-";
+}
+
+function formatSecondBid(item: AuctionItem, secondBid?: Bid) {
+  return secondBid ? formatBid(secondBid) : `Start at ${formatCurrency(item.startingPrice)}`;
+}
+
+function formatLockedInBid(item: AuctionItem, topBid?: Bid) {
+  if (!isLockedIn(item, topBid)) return "-";
+
+  const lockedAmount =
+    item.winningBid ?? item.finalPrice ?? (topBid?.type === "locked" ? topBid.amount : undefined);
+  const lockedBy = item.winnerName ?? (topBid?.type === "locked" ? topBid.bidderName : undefined);
+  if (lockedAmount === undefined || !lockedBy) return "-";
+
+  return `${formatCurrency(lockedAmount)} by ${lockedBy}`;
 }
 
 function isLockedIn(item: AuctionItem, topBid?: Bid) {
