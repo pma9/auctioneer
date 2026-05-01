@@ -20,6 +20,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Copy, Pencil, Plus, RotateCcw, Settings, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
+import { SubmittingButton } from "@/components/SubmittingButton";
 import { calculateVickreyBreakdown, formatCurrency, normalizeItemName } from "@/lib/auction/calculations";
 import type { Auction, AuctionItem, Bid } from "@/lib/auction/types";
 import { auth, db } from "@/lib/firebase/client";
@@ -40,6 +41,7 @@ const emptyItemForm = {
 
 type ItemForm = typeof emptyItemForm;
 type AdminTab = "current" | "all";
+type AdminSubmission = "item" | "open" | "settle" | "reopen";
 
 export function AdminDashboard({ auctionId }: Props) {
   const router = useRouter();
@@ -57,6 +59,7 @@ export function AdminDashboard({ auctionId }: Props) {
   const [isOpenModalOpen, setIsOpenModalOpen] = useState(false);
   const [isSettleModalOpen, setIsSettleModalOpen] = useState(false);
   const [isReopenModalOpen, setIsReopenModalOpen] = useState(false);
+  const [submittingAction, setSubmittingAction] = useState<AdminSubmission | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -99,6 +102,7 @@ export function AdminDashboard({ auctionId }: Props) {
 
   async function saveItem(event: FormEvent) {
     event.preventDefault();
+    if (submittingAction === "item") return;
     if (!hasValidItemForm(itemForm)) {
       toast("Item name, starting price, and lock-in price are required.");
       return;
@@ -115,58 +119,89 @@ export function AdminDashboard({ auctionId }: Props) {
       updatedAt: serverTimestamp(),
     };
 
-    if (editingItem) {
-      await updateDoc(doc(db, `auctions/${auctionId}/items/${editingItem.id}`), {
-        ...payload,
-        importValidationErrors: deleteField(),
-        ...(editingItem.status === "invalid" || editingItem.status === "removed" ? { status: "open" } : {}),
-      });
-    } else {
-      const itemRef = doc(collection(db, `auctions/${auctionId}/items`));
-      await setDoc(itemRef, {
-        ...payload,
-        status: "open",
-        createdAt: serverTimestamp(),
-      });
-    }
+    setSubmittingAction("item");
+    try {
+      if (editingItem) {
+        await updateDoc(doc(db, `auctions/${auctionId}/items/${editingItem.id}`), {
+          ...payload,
+          importValidationErrors: deleteField(),
+          ...(editingItem.status === "invalid" || editingItem.status === "removed" ? { status: "open" } : {}),
+        });
+      } else {
+        const itemRef = doc(collection(db, `auctions/${auctionId}/items`));
+        await setDoc(itemRef, {
+          ...payload,
+          status: "open",
+          createdAt: serverTimestamp(),
+        });
+      }
 
-    closeItemModal();
+      closeItemModal();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to save item.");
+    } finally {
+      setSubmittingAction(null);
+    }
   }
 
   async function settleAuction() {
-    const token = await user?.getIdToken();
-    if (!token) return toast("Sign in as an auction admin first.");
-    const response = await fetch(`/api/auctions/${auctionId}/settle`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${token}` },
-    });
-    const result = await response.json();
-    toast(response.ok ? "Auction settled." : result.error);
-    if (response.ok) setIsSettleModalOpen(false);
+    if (submittingAction === "settle") return;
+    setSubmittingAction("settle");
+    try {
+      const token = await user?.getIdToken();
+      if (!token) return toast("Sign in as an auction admin first.");
+      const response = await fetch(`/api/auctions/${auctionId}/settle`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const result = await response.json();
+      toast(response.ok ? "Auction settled." : result.error);
+      if (response.ok) setIsSettleModalOpen(false);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to settle auction.");
+    } finally {
+      setSubmittingAction(null);
+    }
   }
 
   async function openAuction() {
-    const token = await user?.getIdToken();
-    if (!token) return toast("Sign in as an auction admin first.");
-    const response = await fetch(`/api/auctions/${auctionId}/open`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${token}` },
-    });
-    const result = await response.json();
-    toast(response.ok ? "Auction opened." : result.error);
-    if (response.ok) setIsOpenModalOpen(false);
+    if (submittingAction === "open") return;
+    setSubmittingAction("open");
+    try {
+      const token = await user?.getIdToken();
+      if (!token) return toast("Sign in as an auction admin first.");
+      const response = await fetch(`/api/auctions/${auctionId}/open`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const result = await response.json();
+      toast(response.ok ? "Auction opened." : result.error);
+      if (response.ok) setIsOpenModalOpen(false);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to open auction.");
+    } finally {
+      setSubmittingAction(null);
+    }
   }
 
   async function reopenAuction() {
-    const token = await user?.getIdToken();
-    if (!token) return toast("Sign in as an auction admin first.");
-    const response = await fetch(`/api/auctions/${auctionId}/reopen`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${token}` },
-    });
-    const result = await response.json();
-    toast(response.ok ? "Auction re-opened." : result.error);
-    if (response.ok) setIsReopenModalOpen(false);
+    if (submittingAction === "reopen") return;
+    setSubmittingAction("reopen");
+    try {
+      const token = await user?.getIdToken();
+      if (!token) return toast("Sign in as an auction admin first.");
+      const response = await fetch(`/api/auctions/${auctionId}/reopen`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const result = await response.json();
+      toast(response.ok ? "Auction re-opened." : result.error);
+      if (response.ok) setIsReopenModalOpen(false);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to re-open auction.");
+    } finally {
+      setSubmittingAction(null);
+    }
   }
 
   async function copyGuestLoginLink() {
@@ -586,10 +621,20 @@ export function AdminDashboard({ auctionId }: Props) {
               </div>
             </div>
             <div className="mt-5 flex flex-col gap-2 sm:flex-row">
-              <button className="button flex-1" type="submit">
+              <SubmittingButton
+                className="button flex-1"
+                isSubmitting={submittingAction === "item"}
+                submittingLabel={editingItem ? "Saving..." : "Adding..."}
+                type="submit"
+              >
                 {editingItem ? "Save item" : "Add item"}
-              </button>
-              <button className="button-ghost" type="button" onClick={closeItemModal}>
+              </SubmittingButton>
+              <button
+                className="button-ghost"
+                disabled={submittingAction === "item"}
+                type="button"
+                onClick={closeItemModal}
+              >
                 Cancel
               </button>
             </div>
@@ -611,10 +656,20 @@ export function AdminDashboard({ auctionId }: Props) {
             </p>
             <p className="mt-3 font-semibold text-slate-950">Are you sure?</p>
             <div className="mt-5 flex flex-col gap-2 sm:flex-row">
-              <button className="button flex-1" onClick={openAuction}>
+              <SubmittingButton
+                className="button flex-1"
+                isSubmitting={submittingAction === "open"}
+                submittingLabel="Opening..."
+                onClick={openAuction}
+              >
                 Yes, open auction
-              </button>
-              <button className="button-ghost flex-1" type="button" onClick={() => setIsOpenModalOpen(false)}>
+              </SubmittingButton>
+              <button
+                className="button-ghost flex-1"
+                disabled={submittingAction === "open"}
+                type="button"
+                onClick={() => setIsOpenModalOpen(false)}
+              >
                 Cancel
               </button>
             </div>
@@ -636,11 +691,17 @@ export function AdminDashboard({ auctionId }: Props) {
             </p>
             <p className="mt-3 font-semibold text-slate-950">Are you sure?</p>
             <div className="mt-5 flex flex-col gap-2 sm:flex-row">
-              <button className="button flex-1" onClick={settleAuction}>
+              <SubmittingButton
+                className="button flex-1"
+                isSubmitting={submittingAction === "settle"}
+                submittingLabel="Closing..."
+                onClick={settleAuction}
+              >
                 Yes
-              </button>
+              </SubmittingButton>
               <button
                 className="button-ghost flex-1"
+                disabled={submittingAction === "settle"}
                 type="button"
                 onClick={() => setIsSettleModalOpen(false)}
               >
@@ -665,11 +726,17 @@ export function AdminDashboard({ auctionId }: Props) {
             </p>
             <p className="mt-3 font-semibold text-slate-950">Are you sure?</p>
             <div className="mt-5 flex flex-col gap-2 sm:flex-row">
-              <button className="button flex-1" onClick={reopenAuction}>
+              <SubmittingButton
+                className="button flex-1"
+                isSubmitting={submittingAction === "reopen"}
+                submittingLabel="Re-opening..."
+                onClick={reopenAuction}
+              >
                 Yes, re-open
-              </button>
+              </SubmittingButton>
               <button
                 className="button-ghost flex-1"
+                disabled={submittingAction === "reopen"}
                 type="button"
                 onClick={() => setIsReopenModalOpen(false)}
               >

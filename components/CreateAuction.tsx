@@ -5,6 +5,7 @@ import { ConfirmationResult, onAuthStateChanged, signOut, User } from "firebase/
 import { doc, onSnapshot } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { SubmittingButton } from "@/components/SubmittingButton";
 import { normalizePhoneNumber, US_PHONE_PLACEHOLDER } from "@/lib/auction/phone-normalization";
 import { auth, db } from "@/lib/firebase/client";
 import { usePhoneVerification } from "@/lib/firebase/use-phone-verification";
@@ -22,6 +23,9 @@ export function CreateAuction() {
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [confirmation, setConfirmation] = useState<ConfirmationResult | null>(null);
+  const [isSendingCode, setIsSendingCode] = useState(false);
+  const [isVerifyingCode, setIsVerifyingCode] = useState(false);
+  const [isCreatingAuction, setIsCreatingAuction] = useState(false);
 
   useEffect(() => onAuthStateChanged(auth, setUser), []);
 
@@ -43,26 +47,39 @@ export function CreateAuction() {
 
   async function sendCode(event: FormEvent) {
     event.preventDefault();
+    if (isSendingCode) return;
     toast.dismiss();
+    setIsSendingCode(true);
     try {
       const normalizedPhone = normalizePhoneNumber(phone);
       const result = await sendVerificationCode(normalizedPhone);
       setConfirmation(result);
     } catch (error) {
       toast(error instanceof Error ? error.message : "Unable to send verification code.");
+    } finally {
+      setIsSendingCode(false);
     }
   }
 
   async function verifyCode(event: FormEvent) {
     event.preventDefault();
+    if (isVerifyingCode) return;
     if (!confirmation) return;
-    await confirmation.confirm(code);
-    resetRecaptcha();
-    toast("Signed in. You can create an auction now.");
+    setIsVerifyingCode(true);
+    try {
+      await confirmation.confirm(code);
+      resetRecaptcha();
+      toast("Signed in. You can create an auction now.");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to verify phone.");
+    } finally {
+      setIsVerifyingCode(false);
+    }
   }
 
   async function createAuction(event: FormEvent) {
     event.preventDefault();
+    if (isCreatingAuction) return;
     const currentUser = auth.currentUser;
     if (!currentUser) {
       toast("Sign in with phone first.");
@@ -79,6 +96,7 @@ export function CreateAuction() {
     }
     const auctionTitle = title.trim() || DEFAULT_AUCTION_TITLE;
 
+    setIsCreatingAuction(true);
     try {
       const token = await currentUser.getIdToken();
       const response = await fetch("/api/auctions", {
@@ -93,6 +111,8 @@ export function CreateAuction() {
       router.replace(`/auctions/${auctionId}/admin`);
     } catch (error) {
       toast(error instanceof Error ? error.message : "Unable to create auction.");
+    } finally {
+      setIsCreatingAuction(false);
     }
   }
 
@@ -124,9 +144,14 @@ export function CreateAuction() {
                     value={code}
                     onChange={(event) => setCode(event.target.value)}
                   />
-                  <button className="button" type="submit">
+                  <SubmittingButton
+                    className="button"
+                    isSubmitting={isVerifyingCode}
+                    submittingLabel="Verifying..."
+                    type="submit"
+                  >
                     Verify
-                  </button>
+                  </SubmittingButton>
                   <p className="text-sm text-slate-600">Please enter the code sent to {phone}.</p>
                 </div>
               </form>
@@ -141,9 +166,14 @@ export function CreateAuction() {
                   value={phone}
                   onChange={(event) => setPhone(event.target.value)}
                 />
-                <button className="button w-full" type="submit">
+                <SubmittingButton
+                  className="button w-full"
+                  isSubmitting={isSendingCode}
+                  submittingLabel="Sending..."
+                  type="submit"
+                >
                   Send sign-in code
-                </button>
+                </SubmittingButton>
               </form>
             )}
             <div id="new-auction-recaptcha" />
@@ -177,9 +207,14 @@ export function CreateAuction() {
               value={title}
               onChange={(event) => setTitle(event.target.value)}
             />
-            <button className="button w-full" type="submit">
+            <SubmittingButton
+              className="button w-full"
+              isSubmitting={isCreatingAuction}
+              submittingLabel="Creating..."
+              type="submit"
+            >
               Create auction
-            </button>
+            </SubmittingButton>
           </form>
         )}
       </div>

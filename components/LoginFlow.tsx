@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import type { ConfirmationResult } from "firebase/auth";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
+import { SubmittingButton } from "@/components/SubmittingButton";
 import { US_PHONE_PLACEHOLDER } from "@/lib/auction/phone-normalization";
 import { usePhoneVerification } from "@/lib/firebase/use-phone-verification";
 
@@ -16,51 +17,65 @@ export function LoginFlow() {
   const [code, setCode] = useState("");
   const [confirmation, setConfirmation] = useState<ConfirmationResult | null>(null);
   const [smsRecipientPhone, setSmsRecipientPhone] = useState("");
+  const [isRequestingCode, setIsRequestingCode] = useState(false);
+  const [isConfirmingCode, setIsConfirmingCode] = useState(false);
 
   async function requestCode(event: FormEvent) {
     event.preventDefault();
+    if (isRequestingCode) return;
     toast.dismiss();
 
-    const response = await fetch(`/api/auctions/${auctionId}/verify-guest`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ phone }),
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      toast(result.error ?? "Phone number is not verified for this auction.");
-      return;
-    }
-
-    setSmsRecipientPhone(result.normalizedPhone);
+    setIsRequestingCode(true);
     try {
+      const response = await fetch(`/api/auctions/${auctionId}/verify-guest`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ phone }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        toast(result.error ?? "Phone number is not verified for this auction.");
+        return;
+      }
+
+      setSmsRecipientPhone(result.normalizedPhone);
       const confirmationResult = await sendVerificationCode(result.normalizedPhone);
       setConfirmation(confirmationResult);
     } catch (error) {
       toast(error instanceof Error ? error.message : "Unable to send verification code.");
+    } finally {
+      setIsRequestingCode(false);
     }
   }
 
   async function confirmCode(event: FormEvent) {
     event.preventDefault();
+    if (isConfirmingCode) return;
     if (!confirmation) return;
 
-    const credential = await confirmation.confirm(code);
-    const token = await credential.user.getIdToken();
-    const response = await fetch(`/api/auctions/${auctionId}/join`, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${token}`,
-      },
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      toast(result.error ?? "Could not join auction.");
-      return;
-    }
+    setIsConfirmingCode(true);
+    try {
+      const credential = await confirmation.confirm(code);
+      const token = await credential.user.getIdToken();
+      const response = await fetch(`/api/auctions/${auctionId}/join`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+        },
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        toast(result.error ?? "Could not join auction.");
+        return;
+      }
 
-    resetRecaptcha();
-    router.replace(`/auctions/${auctionId}/guest`);
+      resetRecaptcha();
+      router.replace(`/auctions/${auctionId}/guest`);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not join auction.");
+    } finally {
+      setIsConfirmingCode(false);
+    }
   }
 
   return (
@@ -93,9 +108,14 @@ export function LoginFlow() {
               onChange={(event) => setPhone(event.target.value)}
               required
             />
-            <button className="button w-full" type="submit">
+            <SubmittingButton
+              className="button w-full"
+              isSubmitting={isRequestingCode}
+              submittingLabel="Sending..."
+              type="submit"
+            >
               Verify and send code
-            </button>
+            </SubmittingButton>
           </form>
         ) : (
           <form className="mt-6 space-y-4" onSubmit={confirmCode}>
@@ -107,9 +127,14 @@ export function LoginFlow() {
               required
             />
             <p className="text-sm text-slate-600">Enter the code sent to {smsRecipientPhone}.</p>
-            <button className="button w-full" type="submit">
+            <SubmittingButton
+              className="button w-full"
+              isSubmitting={isConfirmingCode}
+              submittingLabel="Entering..."
+              type="submit"
+            >
               Enter auction
-            </button>
+            </SubmittingButton>
           </form>
         )}
 

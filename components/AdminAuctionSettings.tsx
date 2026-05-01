@@ -6,6 +6,7 @@ import { collection, doc, onSnapshot, serverTimestamp, updateDoc, writeBatch } f
 import Link from "next/link";
 import { ArrowLeft, Copy, Pencil, Sheet, Trash2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
+import { SubmittingButton } from "@/components/SubmittingButton";
 import { US_PHONE_PLACEHOLDER } from "@/lib/auction/phone-normalization";
 import type { Auction, VerifiedGuest } from "@/lib/auction/types";
 import { db } from "@/lib/firebase/client";
@@ -18,6 +19,8 @@ type Props = {
 type GuestRow = VerifiedGuest & {
   id: string;
 };
+
+type SettingsSubmission = "title" | "adminName" | "notes" | "guest" | "import";
 
 type ImportSheetResponse = {
   created: number;
@@ -56,6 +59,8 @@ export function AdminAuctionSettings({ auctionId }: Props) {
   const [notesForm, setNotesForm] = useState(emptyNotesForm);
   const [guestForm, setGuestForm] = useState(emptyGuestForm);
   const [editingGuest, setEditingGuest] = useState<GuestRow | null>(null);
+  const [submittingForm, setSubmittingForm] = useState<SettingsSubmission | null>(null);
+  const [removingGuestPhoneHash, setRemovingGuestPhoneHash] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -87,105 +92,156 @@ export function AdminAuctionSettings({ auctionId }: Props) {
 
   async function importSheet(event: FormEvent) {
     event.preventDefault();
-    const token = await user?.getIdToken();
-    if (!token) return toast("Sign in as an auction admin first.");
-    const response = await fetch(`/api/auctions/${auctionId}/import-sheet`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ sheetUrlOrId: sheetUrl }),
-    });
-    const result = (await response.json()) as ImportSheetResponse;
-    if (!response.ok) return toast(result.error ?? "Unable to import sheet.");
+    if (submittingForm === "import") return;
 
-    const skippedPreview = result.skippedRows
-      ?.slice(0, 5)
-      .map((row) => `row ${row.sourceRow}: ${row.reason}`)
-      .join("; ");
-    const skippedMessage = result.skipped
-      ? ` Skipped ${result.skipped} rows. ${skippedPreview ? `Reasons: ${skippedPreview}.` : ""}`
-      : "";
-    toast(
-      `Imported ${result.total} rows: ${result.created} new, ${result.updated} updated.${skippedMessage}`,
-    );
+    setSubmittingForm("import");
+    try {
+      const token = await user?.getIdToken();
+      if (!token) return toast("Sign in as an auction admin first.");
+      const response = await fetch(`/api/auctions/${auctionId}/import-sheet`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ sheetUrlOrId: sheetUrl }),
+      });
+      const result = (await response.json()) as ImportSheetResponse;
+      if (!response.ok) return toast(result.error ?? "Unable to import sheet.");
+
+      const skippedPreview = result.skippedRows
+        ?.slice(0, 5)
+        .map((row) => `row ${row.sourceRow}: ${row.reason}`)
+        .join("; ");
+      const skippedMessage = result.skipped
+        ? ` Skipped ${result.skipped} rows. ${skippedPreview ? `Reasons: ${skippedPreview}.` : ""}`
+        : "";
+      toast(
+        `Imported ${result.total} rows: ${result.created} new, ${result.updated} updated.${skippedMessage}`,
+      );
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to import sheet.");
+    } finally {
+      setSubmittingForm(null);
+    }
   }
 
   async function saveAuctionTitle(event: FormEvent) {
     event.preventDefault();
+    if (submittingForm === "title") return;
     if (!title.trim()) return toast("Auction name is required.");
 
-    await updateDoc(doc(db, `auctions/${auctionId}`), {
-      title: title.trim(),
-      updatedAt: serverTimestamp(),
-    });
-    toast("Auction name updated.");
+    setSubmittingForm("title");
+    try {
+      await updateDoc(doc(db, `auctions/${auctionId}`), {
+        title: title.trim(),
+        updatedAt: serverTimestamp(),
+      });
+      toast("Auction name updated.");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to update auction name.");
+    } finally {
+      setSubmittingForm(null);
+    }
   }
 
   async function saveAdminDisplayName(event: FormEvent) {
     event.preventDefault();
+    if (submittingForm === "adminName") return;
     if (!user) return toast("Sign in as an auction admin first.");
     const displayName = adminDisplayName.trim();
     if (!displayName) return toast("Admin name is required.");
 
-    const batch = writeBatch(db);
-    batch.update(doc(db, `auctions/${auctionId}`), {
-      adminDisplayName: displayName,
-      updatedAt: serverTimestamp(),
-    });
-    batch.set(
-      doc(db, `auctions/${auctionId}/admins/${user.uid}`),
-      {
-        displayName,
+    setSubmittingForm("adminName");
+    try {
+      const batch = writeBatch(db);
+      batch.update(doc(db, `auctions/${auctionId}`), {
+        adminDisplayName: displayName,
         updatedAt: serverTimestamp(),
-      },
-      { merge: true },
-    );
-    batch.set(doc(db, `users/${user.uid}`), { displayName }, { merge: true });
-    await batch.commit();
-    toast("Admin name updated.");
+      });
+      batch.set(
+        doc(db, `auctions/${auctionId}/admins/${user.uid}`),
+        {
+          displayName,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+      batch.set(doc(db, `users/${user.uid}`), { displayName }, { merge: true });
+      await batch.commit();
+      toast("Admin name updated.");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to update admin name.");
+    } finally {
+      setSubmittingForm(null);
+    }
   }
 
   async function saveAuctionNotes(event: FormEvent) {
     event.preventDefault();
-    await updateDoc(doc(db, `auctions/${auctionId}`), {
-      auctionNotes: notesForm.auctionNotes.trim(),
-      closingNotes: notesForm.closingNotes.trim(),
-      updatedAt: serverTimestamp(),
-    });
-    toast("Auction notes saved.");
+    if (submittingForm === "notes") return;
+
+    setSubmittingForm("notes");
+    try {
+      await updateDoc(doc(db, `auctions/${auctionId}`), {
+        auctionNotes: notesForm.auctionNotes.trim(),
+        closingNotes: notesForm.closingNotes.trim(),
+        updatedAt: serverTimestamp(),
+      });
+      toast("Auction notes saved.");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to save auction notes.");
+    } finally {
+      setSubmittingForm(null);
+    }
   }
 
   async function saveGuest(event: FormEvent) {
     event.preventDefault();
-    const token = await user?.getIdToken();
-    if (!token) return toast("Sign in as an auction admin first.");
+    if (submittingForm === "guest") return;
 
-    const response = await fetch(`/api/auctions/${auctionId}/guests`, {
-      method: editingGuest ? "PATCH" : "POST",
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({
-        phoneHash: editingGuest?.phoneHash,
-        displayName: guestForm.displayName,
-        phone: guestForm.phone,
-      }),
-    });
-    const result = await response.json();
-    toast(response.ok ? (editingGuest ? "Guest updated." : "Guest added.") : result.error);
-    if (response.ok) resetGuestForm();
+    setSubmittingForm("guest");
+    try {
+      const token = await user?.getIdToken();
+      if (!token) return toast("Sign in as an auction admin first.");
+
+      const response = await fetch(`/api/auctions/${auctionId}/guests`, {
+        method: editingGuest ? "PATCH" : "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          phoneHash: editingGuest?.phoneHash,
+          displayName: guestForm.displayName,
+          phone: guestForm.phone,
+        }),
+      });
+      const result = await response.json();
+      toast(response.ok ? (editingGuest ? "Guest updated." : "Guest added.") : result.error);
+      if (response.ok) resetGuestForm();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to save guest.");
+    } finally {
+      setSubmittingForm(null);
+    }
   }
 
   async function removeGuest(guest: GuestRow) {
+    if (removingGuestPhoneHash === guest.phoneHash) return;
     const confirmed = window.confirm(`Remove ${guest.displayName} from the guest list?`);
     if (!confirmed) return;
 
-    const token = await user?.getIdToken();
-    if (!token) return toast("Sign in as an auction admin first.");
-    const response = await fetch(`/api/auctions/${auctionId}/guests`, {
-      method: "DELETE",
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ phoneHash: guest.phoneHash }),
-    });
-    const result = await response.json();
-    toast(response.ok ? "Guest removed." : result.error);
+    setRemovingGuestPhoneHash(guest.phoneHash);
+    try {
+      const token = await user?.getIdToken();
+      if (!token) return toast("Sign in as an auction admin first.");
+      const response = await fetch(`/api/auctions/${auctionId}/guests`, {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ phoneHash: guest.phoneHash }),
+      });
+      const result = await response.json();
+      toast(response.ok ? "Guest removed." : result.error);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to remove guest.");
+    } finally {
+      setRemovingGuestPhoneHash(null);
+    }
   }
 
   async function copyGuestLoginLink() {
@@ -257,9 +313,14 @@ export function AdminAuctionSettings({ auctionId }: Props) {
                 onChange={(event) => setTitle(event.target.value)}
                 required
               />
-              <button className="button" type="submit">
+              <SubmittingButton
+                className="button"
+                isSubmitting={submittingForm === "title"}
+                submittingLabel="Saving..."
+                type="submit"
+              >
                 Change name
-              </button>
+              </SubmittingButton>
             </div>
           </motion.form>
 
@@ -276,9 +337,14 @@ export function AdminAuctionSettings({ auctionId }: Props) {
                 onChange={(event) => setAdminDisplayName(event.target.value)}
                 required
               />
-              <button className="button" type="submit">
+              <SubmittingButton
+                className="button"
+                isSubmitting={submittingForm === "adminName"}
+                submittingLabel="Saving..."
+                type="submit"
+              >
                 Change name
-              </button>
+              </SubmittingButton>
             </div>
           </motion.form>
         </div>
@@ -309,9 +375,14 @@ export function AdminAuctionSettings({ auctionId }: Props) {
               placeholder="Shown to guests after the auction is closed."
             />
           </label>
-          <button className="button w-full sm:w-auto" type="submit">
+          <SubmittingButton
+            className="button w-full sm:w-auto"
+            isSubmitting={submittingForm === "notes"}
+            submittingLabel="Saving..."
+            type="submit"
+          >
             Save auction notes
-          </button>
+          </SubmittingButton>
         </motion.form>
 
         <div className="grid min-w-0 gap-6 lg:grid-cols-[3fr_2fr]">
@@ -345,11 +416,21 @@ export function AdminAuctionSettings({ auctionId }: Props) {
                 )}
               </div>
               <div className="flex flex-col gap-2 sm:flex-row">
-                <button className="button" type="submit">
+                <SubmittingButton
+                  className="button"
+                  isSubmitting={submittingForm === "guest"}
+                  submittingLabel={editingGuest ? "Saving..." : "Adding..."}
+                  type="submit"
+                >
                   {editingGuest ? "Save" : "Add"}
-                </button>
+                </SubmittingButton>
                 {editingGuest && (
-                  <button className="button-ghost" type="button" onClick={resetGuestForm}>
+                  <button
+                    className="button-ghost"
+                    disabled={submittingForm === "guest"}
+                    type="button"
+                    onClick={resetGuestForm}
+                  >
                     Cancel
                   </button>
                 )}
@@ -372,13 +453,15 @@ export function AdminAuctionSettings({ auctionId }: Props) {
                     >
                       Edit
                     </button>
-                    <button
+                    <SubmittingButton
                       className="button-secondary flex-1 px-4 py-2"
                       aria-label={`Remove ${guest.displayName}`}
+                      isSubmitting={removingGuestPhoneHash === guest.phoneHash}
+                      submittingLabel="Removing..."
                       onClick={() => removeGuest(guest)}
                     >
                       Remove
-                    </button>
+                    </SubmittingButton>
                   </div>
                 </div>
               ))}
@@ -408,13 +491,14 @@ export function AdminAuctionSettings({ auctionId }: Props) {
                         >
                           <Pencil size={16} />
                         </button>
-                        <button
+                        <SubmittingButton
                           className="icon-button"
                           aria-label={`Remove ${guest.displayName}`}
+                          isSubmitting={removingGuestPhoneHash === guest.phoneHash}
                           onClick={() => removeGuest(guest)}
                         >
                           <Trash2 size={16} />
-                        </button>
+                        </SubmittingButton>
                       </td>
                     </tr>
                   ))}
@@ -435,9 +519,14 @@ export function AdminAuctionSettings({ auctionId }: Props) {
               onChange={(event) => setSheetUrl(event.target.value)}
               required
             />
-            <button className="button w-full" type="submit">
+            <SubmittingButton
+              className="button w-full"
+              isSubmitting={submittingForm === "import"}
+              submittingLabel="Importing..."
+              type="submit"
+            >
               Import catalog
-            </button>
+            </SubmittingButton>
           </motion.form>
         </div>
       </div>

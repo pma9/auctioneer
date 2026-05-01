@@ -9,6 +9,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Lock, Pencil, Trash2, X } from "lucide-react";
 import { AuctionRulesModal } from "@/components/AuctionRulesModal";
+import { SubmittingButton } from "@/components/SubmittingButton";
 import { toast } from "sonner";
 import { isWholeDollarBid, maxAllowedBidForItem } from "@/lib/auction/bid-limits";
 import { calculateFinancialSummary, formatCurrency } from "@/lib/auction/calculations";
@@ -59,6 +60,7 @@ export function GuestDashboard({ auctionId }: Props) {
   const [bidError, setBidError] = useState("");
   const [pendingLockIn, setPendingLockIn] = useState<LockInRequest | null>(null);
   const [pendingRemoveBid, setPendingRemoveBid] = useState<RemoveBidRequest | null>(null);
+  const [isSavingBid, setIsSavingBid] = useState(false);
   const [isLockingIn, setIsLockingIn] = useState(false);
   const [isRemovingBid, setIsRemovingBid] = useState(false);
 
@@ -206,6 +208,7 @@ export function GuestDashboard({ auctionId }: Props) {
 
   async function saveBid(event: FormEvent) {
     event.preventDefault();
+    if (isSavingBid) return;
     if (!user || !selectedItem) return;
     setBidError("");
     if (!isAuctionOpen) {
@@ -222,24 +225,32 @@ export function GuestDashboard({ auctionId }: Props) {
       setBidError(amountError);
       return;
     }
-    const token = await user.getIdToken();
-    const response = await fetch(`/api/auctions/${auctionId}/bids`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({
-        itemId: selectedItem.id,
-        amount,
-      }),
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      setBidError(result.error ?? "Unable to save bid.");
-      return;
-    }
 
-    setSelectedItem(null);
-    setBidAmount("");
-    setBidError("");
+    setIsSavingBid(true);
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch(`/api/auctions/${auctionId}/bids`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          itemId: selectedItem.id,
+          amount,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        setBidError(result.error ?? "Unable to save bid.");
+        return;
+      }
+
+      setSelectedItem(null);
+      setBidAmount("");
+      setBidError("");
+    } catch (error) {
+      setBidError(error instanceof Error ? error.message : "Unable to save bid.");
+    } finally {
+      setIsSavingBid(false);
+    }
   }
 
   function requestLockIn(item: AuctionItem, amount: number, errorTarget: LockInRequest["errorTarget"]) {
@@ -268,11 +279,17 @@ export function GuestDashboard({ auctionId }: Props) {
   }
 
   async function confirmLockIn() {
+    if (isLockingIn) return;
     if (!pendingLockIn) return;
     setIsLockingIn(true);
-    await lockIn(pendingLockIn.item, pendingLockIn.amount, pendingLockIn.errorTarget);
-    setIsLockingIn(false);
-    setPendingLockIn(null);
+    try {
+      await lockIn(pendingLockIn.item, pendingLockIn.amount, pendingLockIn.errorTarget);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to lock in item.");
+    } finally {
+      setIsLockingIn(false);
+      setPendingLockIn(null);
+    }
   }
 
   async function lockIn(item: AuctionItem, amount: number, errorTarget: LockInRequest["errorTarget"]) {
@@ -309,11 +326,17 @@ export function GuestDashboard({ auctionId }: Props) {
   }
 
   async function confirmRemoveBid() {
+    if (isRemovingBid) return;
     if (!pendingRemoveBid) return;
     setIsRemovingBid(true);
-    const removed = await removeBid(pendingRemoveBid.bid);
-    setIsRemovingBid(false);
-    if (removed) setPendingRemoveBid(null);
+    try {
+      const removed = await removeBid(pendingRemoveBid.bid);
+      if (removed) setPendingRemoveBid(null);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to remove bid.");
+    } finally {
+      setIsRemovingBid(false);
+    }
   }
 
   async function removeBid(bid: Bid) {
@@ -721,9 +744,14 @@ export function GuestDashboard({ auctionId }: Props) {
               </p>
             )}
             <div className="mt-5 flex flex-col gap-2 sm:flex-row">
-              <button className="button flex-1" type="submit">
+              <SubmittingButton
+                className="button flex-1"
+                isSubmitting={isSavingBid}
+                submittingLabel="Saving..."
+                type="submit"
+              >
                 Save regular bid
-              </button>
+              </SubmittingButton>
               <span
                 className="flex-1"
                 title={
@@ -736,7 +764,7 @@ export function GuestDashboard({ auctionId }: Props) {
               >
                 <button
                   className="button-secondary w-full"
-                  disabled={!isAuctionOpen || Number(bidAmount) < selectedItem.lockInPrice}
+                  disabled={isSavingBid || !isAuctionOpen || Number(bidAmount) < selectedItem.lockInPrice}
                   type="button"
                   onClick={() => requestLockIn(selectedItem, Number(bidAmount), "dialog")}
                 >
@@ -745,6 +773,7 @@ export function GuestDashboard({ auctionId }: Props) {
               </span>
               <button
                 className="button-ghost"
+                disabled={isSavingBid}
                 type="button"
                 onClick={() => {
                   setSelectedItem(null);
@@ -772,13 +801,14 @@ export function GuestDashboard({ auctionId }: Props) {
               new bid later while the auction is still open.
             </p>
             <div className="mt-6 flex flex-col gap-2 sm:flex-row">
-              <button
+              <SubmittingButton
                 className="flex-1 rounded-full bg-red-600 px-5 py-3 font-bold text-white transition hover:bg-red-700"
-                disabled={isRemovingBid}
+                isSubmitting={isRemovingBid}
+                submittingLabel="Removing..."
                 onClick={confirmRemoveBid}
               >
-                {isRemovingBid ? "Removing..." : "Yes, remove bid"}
-              </button>
+                Yes, remove bid
+              </SubmittingButton>
               <button
                 className="button-secondary flex-1"
                 disabled={isRemovingBid}
@@ -806,9 +836,14 @@ export function GuestDashboard({ auctionId }: Props) {
               NOT able to edit or remove a locked-in bid, it is final! Do you want to lock-in?
             </p>
             <div className="mt-6 flex flex-col gap-2 sm:flex-row">
-              <button className="button flex-1" disabled={isLockingIn} onClick={confirmLockIn}>
-                {isLockingIn ? "Locking in..." : "Yes, lock in"}
-              </button>
+              <SubmittingButton
+                className="button flex-1"
+                isSubmitting={isLockingIn}
+                submittingLabel="Locking in..."
+                onClick={confirmLockIn}
+              >
+                Yes, lock in
+              </SubmittingButton>
               <button
                 className="button-secondary flex-1"
                 disabled={isLockingIn}

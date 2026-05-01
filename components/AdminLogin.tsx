@@ -6,6 +6,7 @@ import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { SubmittingButton } from "@/components/SubmittingButton";
 import { normalizePhoneNumber, US_PHONE_PLACEHOLDER } from "@/lib/auction/phone-normalization";
 import type { Auction } from "@/lib/auction/types";
 import { auth, db } from "@/lib/firebase/client";
@@ -21,6 +22,8 @@ export function AdminLogin() {
   const [sentPhone, setSentPhone] = useState("");
   const [code, setCode] = useState("");
   const [confirmation, setConfirmation] = useState<ConfirmationResult | null>(null);
+  const [isSendingCode, setIsSendingCode] = useState(false);
+  const [isVerifyingCode, setIsVerifyingCode] = useState(false);
 
   useEffect(
     () =>
@@ -59,7 +62,9 @@ export function AdminLogin() {
 
   async function sendCode(event: FormEvent) {
     event.preventDefault();
+    if (isSendingCode) return;
     toast.dismiss();
+    setIsSendingCode(true);
     try {
       const normalizedPhone = normalizePhoneNumber(phone);
       const result = await sendVerificationCode(normalizedPhone);
@@ -67,21 +72,31 @@ export function AdminLogin() {
       setSentPhone(normalizedPhone);
     } catch (error) {
       toast(error instanceof Error ? error.message : "Unable to send verification code.");
+    } finally {
+      setIsSendingCode(false);
     }
   }
 
   async function verifyCode(event: FormEvent) {
     event.preventDefault();
+    if (isVerifyingCode) return;
     if (!confirmation) return;
-    const credential = await confirmation.confirm(code);
-    if (!credential.user.phoneNumber) {
+    setIsVerifyingCode(true);
+    try {
+      const credential = await confirmation.confirm(code);
+      if (!credential.user.phoneNumber) {
+        resetRecaptcha();
+        await signOut(auth);
+        toast("Admin login requires phone authentication.");
+        return;
+      }
       resetRecaptcha();
-      await signOut(auth);
-      toast("Admin login requires phone authentication.");
-      return;
+      toast("Signed in. Choose an auction to manage.");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to verify phone.");
+    } finally {
+      setIsVerifyingCode(false);
     }
-    resetRecaptcha();
-    toast("Signed in. Choose an auction to manage.");
   }
 
   async function switchAccount() {
@@ -119,9 +134,14 @@ export function AdminLogin() {
                 onChange={(event) => setPhone(event.target.value)}
                 required
               />
-              <button className="button w-full" type="submit">
+              <SubmittingButton
+                className="button w-full"
+                isSubmitting={isSendingCode}
+                submittingLabel="Sending..."
+                type="submit"
+              >
                 Send admin sign-in code
-              </button>
+              </SubmittingButton>
             </form>
           ) : (
             <form className="mt-8 space-y-4" onSubmit={verifyCode}>
@@ -132,9 +152,14 @@ export function AdminLogin() {
                 onChange={(event) => setCode(event.target.value)}
                 required
               />
-              <button className="button w-full" type="submit">
+              <SubmittingButton
+                className="button w-full"
+                isSubmitting={isVerifyingCode}
+                submittingLabel="Verifying..."
+                type="submit"
+              >
                 Verify phone
-              </button>
+              </SubmittingButton>
               <p className="text-sm text-slate-600">Please enter the code sent to {sentPhone || phone}.</p>
             </form>
           )
