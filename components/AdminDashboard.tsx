@@ -18,7 +18,7 @@ import {
 } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Copy, Pencil, Plus, RotateCcw, Settings, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, Pencil, Plus, RotateCcw, Settings, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { SubmittingButton } from "@/components/SubmittingButton";
 import { calculateVickreyBreakdown, formatCurrency, normalizeItemName } from "@/lib/auction/calculations";
@@ -51,6 +51,7 @@ export function AdminDashboard({ auctionId }: Props) {
   const [bids, setBids] = useState<Bid[]>([]);
   const [activeTab, setActiveTab] = useState<AdminTab>("current");
   const [searchQuery, setSearchQuery] = useState("");
+  const [expandedWinnerUids, setExpandedWinnerUids] = useState<Set<string>>(() => new Set());
   const [showRemovedItems, setShowRemovedItems] = useState(false);
   const [showInvalidItems, setShowInvalidItems] = useState(true);
   const [itemForm, setItemForm] = useState<ItemForm>(emptyItemForm);
@@ -84,8 +85,13 @@ export function AdminDashboard({ auctionId }: Props) {
   const analytics = useMemo(() => {
     const bidsByItem = new Map<string, Bid[]>();
     bids.forEach((bid) => bidsByItem.set(bid.itemId, [...(bidsByItem.get(bid.itemId) ?? []), bid]));
-    const activeItems = items.filter((item) => item.status === "open" || item.status === "locked");
-    const rows = activeItems.map((item) => calculateVickreyBreakdown(item, bidsByItem.get(item.id) ?? []));
+    const includeSettled = auction?.status === "settling" || auction?.status === "closed";
+    const bidItems = items.filter((item) => {
+      if (item.status === "open" || item.status === "locked") return true;
+      if (includeSettled && item.status === "settled") return true;
+      return false;
+    });
+    const rows = bidItems.map((item) => calculateVickreyBreakdown(item, bidsByItem.get(item.id) ?? []));
     const rowsByItemId = new Map(rows.map((row) => [row.item.id, row]));
     return {
       rows,
@@ -98,7 +104,54 @@ export function AdminDashboard({ auctionId }: Props) {
       itemsWithBids: items.filter((item) => bidsByItem.has(item.id)).length,
       lockedInBids: bids.filter((bid) => bid.type === "locked").length,
     };
-  }, [bids, items]);
+  }, [auction?.status, bids, items]);
+
+  const settlement = useMemo(() => {
+    const winnersByUid = new Map<
+      string,
+      { uid: string; displayName: string; items: { item: AuctionItem; owed: number }[]; totalOwed: number }
+    >();
+
+    for (const item of items) {
+      if (item.status !== "locked" && item.status !== "settled") continue;
+      if (!item.winnerUid) continue;
+      const owed = item.finalPrice ?? item.winningBid ?? 0;
+      const displayName = item.winnerName ?? "Guest";
+
+      const existing = winnersByUid.get(item.winnerUid) ?? {
+        uid: item.winnerUid,
+        displayName,
+        items: [],
+        totalOwed: 0,
+      };
+      existing.items.push({ item, owed });
+      existing.totalOwed += owed;
+      if (!existing.displayName && displayName) existing.displayName = displayName;
+      winnersByUid.set(item.winnerUid, existing);
+    }
+
+    const winners = [...winnersByUid.values()]
+      .map((winner) => ({
+        ...winner,
+        items: [...winner.items].sort((a, b) => b.owed - a.owed),
+      }))
+      .sort((a, b) => b.totalOwed - a.totalOwed);
+
+    return {
+      winners,
+      totalRevenue: winners.reduce((sum, winner) => sum + winner.totalOwed, 0),
+      totalItems: winners.reduce((sum, winner) => sum + winner.items.length, 0),
+    };
+  }, [items]);
+
+  function toggleWinnerExpanded(uid: string) {
+    setExpandedWinnerUids((prev) => {
+      const next = new Set(prev);
+      if (next.has(uid)) next.delete(uid);
+      else next.add(uid);
+      return next;
+    });
+  }
 
   async function saveItem(event: FormEvent) {
     event.preventDefault();
@@ -369,11 +422,98 @@ export function AdminDashboard({ auctionId }: Props) {
           </div>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-4">
-          <Stat label="Real-time revenue" value={formatCurrency(analytics.revenue)} />
-          <Stat label="Total bids" value={String(analytics.totalBids)} />
-          <Stat label="Items with bid" value={String(analytics.itemsWithBids)} />
-          <Stat label="Locked-in bids" value={String(analytics.lockedInBids)} />
+        <section
+          className={`grid gap-4 ${auction?.status === "closed" ? "lg:grid-cols-2 lg:items-start" : ""}`}
+        >
+          <section
+            className={`grid grid-cols-2 gap-3 sm:gap-4 ${auction?.status === "open" ? "lg:grid-cols-4" : ""}`}
+          >
+            <Stat label="Revenue" value={formatCurrency(analytics.revenue)} />
+            <Stat label="Total bids" value={String(analytics.totalBids)} />
+            <Stat label="Items with bid" value={String(analytics.itemsWithBids)} />
+            <Stat label="Locked-in bids" value={String(analytics.lockedInBids)} />
+          </section>
+
+          {auction?.status === "closed" ? (
+            <section className="card overflow-hidden">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">
+                    Settlement
+                  </p>
+                  <h2 className="mt-2 text-2xl font-bold">Winning Summary &amp; Dues</h2>
+                </div>
+                <div className="text-sm text-slate-600">
+                  <span className="font-semibold text-slate-950">{settlement.totalItems}</span> item(s) ·{" "}
+                  <span className="font-semibold text-slate-950">
+                    {formatCurrency(settlement.totalRevenue)}
+                  </span>{" "}
+                  total owed
+                </div>
+              </div>
+
+              {settlement.winners.length ? (
+                <div className="mt-5 space-y-3">
+                  {settlement.winners.map((winner) => {
+                    const isExpanded = expandedWinnerUids.has(winner.uid);
+                    return (
+                      <div className="rounded-2xl border border-slate-100 bg-white" key={winner.uid}>
+                        <button
+                          className="flex w-full items-center justify-between gap-3 p-4 text-left"
+                          type="button"
+                          aria-expanded={isExpanded}
+                          onClick={() => toggleWinnerExpanded(winner.uid)}
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-slate-950">
+                              {winner.displayName}
+                            </p>
+                            <p className="mt-1 text-sm text-slate-600">{winner.items.length} item(s)</p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-3">
+                            <p className="text-sm font-semibold text-slate-950">
+                              {formatCurrency(winner.totalOwed)}
+                            </p>
+                            {isExpanded ? (
+                              <ChevronDown aria-hidden="true" className="text-slate-500" size={18} />
+                            ) : (
+                              <ChevronRight aria-hidden="true" className="text-slate-500" size={18} />
+                            )}
+                          </div>
+                        </button>
+
+                        {isExpanded && (
+                          <div className="border-t border-slate-100 px-4 pb-4 pt-3">
+                            <div className="space-y-2">
+                              {winner.items.map(({ item, owed }) => (
+                                <div
+                                  className="grid grid-cols-[1fr_auto] items-start gap-3 rounded-xl bg-slate-50 p-3"
+                                  key={item.id}
+                                >
+                                  <p className="min-w-0 wrap-break-word text-sm font-medium text-slate-950">
+                                    {item.name}
+                                  </p>
+                                  <p className="whitespace-nowrap text-right text-sm font-semibold text-green-700">
+                                    {formatCurrency(owed)}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
+                  No items have been settled or locked in yet.
+                </p>
+              )}
+            </section>
+          ) : (
+            <div />
+          )}
         </section>
 
         <section className="space-y-4">
@@ -757,8 +897,10 @@ export function AdminDashboard({ auctionId }: Props) {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="card">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-2 text-3xl font-bold">{value}</p>
+      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 sm:text-sm sm:font-normal sm:tracking-normal">
+        {label}
+      </p>
+      <p className="mt-1 text-2xl font-bold sm:mt-2 sm:text-3xl">{value}</p>
     </div>
   );
 }
