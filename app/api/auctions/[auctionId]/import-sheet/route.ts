@@ -37,7 +37,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         ref,
         {
           ...item,
-          ...(!existingRef && !item.status ? { status: "open" } : {}),
+          ...(!existingRef && !item.status ? { status: "draft" } : {}),
           sourceSheetId: sheetId,
           ...lifecycleFields,
           updatedAt: FieldValue.serverTimestamp(),

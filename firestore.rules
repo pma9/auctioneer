@@ -20,6 +20,11 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/users/$(request.auth.uid)/auctions/$(auctionId));
     }
 
+    function guestCanReadAuctionItem() {
+      let status = resource.data.status;
+      return status == null || status in ["open", "locked", "settled"];
+    }
+
     function validUserProfileCreate(uid) {
       return signedIn() &&
         request.auth.uid == uid &&
@@ -62,7 +67,7 @@ service cloud.firestore {
       }
 
       match /items/{itemId} {
-        allow read: if isAdmin(auctionId) || isGuest(auctionId);
+        allow read: if isAdmin(auctionId) || (isGuest(auctionId) && guestCanReadAuctionItem());
         allow create, update: if isAdmin(auctionId);
         allow delete: if false;
 

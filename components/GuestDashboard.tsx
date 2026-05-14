@@ -70,12 +70,12 @@ export function GuestDashboard({ auctionId }: Props) {
     const unsubAuction = onSnapshot(doc(db, `auctions/${auctionId}`), (snapshot) =>
       setAuction(snapshot.exists() ? ({ id: snapshot.id, ...snapshot.data() } as Auction) : null),
     );
-    const unsubItems = onSnapshot(collection(db, `auctions/${auctionId}/items`), (snapshot) =>
-      setItems(
-        snapshot.docs
-          .map((itemDoc) => ({ id: itemDoc.id, ...itemDoc.data() }) as AuctionItem)
-          .filter((item) => item.status !== "removed" && item.status !== "invalid"),
-      ),
+    const itemsQuery = query(
+      collection(db, `auctions/${auctionId}/items`),
+      where("status", "in", ["open", "locked", "settled"]),
+    );
+    const unsubItems = onSnapshot(itemsQuery, (snapshot) =>
+      setItems(snapshot.docs.map((itemDoc) => ({ id: itemDoc.id, ...itemDoc.data() }) as AuctionItem)),
     );
     return () => {
       unsubAuction();
@@ -435,7 +435,8 @@ export function GuestDashboard({ auctionId }: Props) {
           <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5">
             <p className="text-md font-semibold uppercase tracking-[0.2em] text-amber-700">Auction Pending</p>
             <p className="mt-2 text-sm leading-6 text-slate-700">
-              You can browse the items now. Bidding will be available once the admin opens the auction.
+              You can browse published items now. Bidding will be available once the admin opens the auction.
+              Draft items are visible only to admins until published.
             </p>
           </section>
         )}

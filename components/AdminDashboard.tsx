@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Fuse from "fuse.js";
 import { signOut } from "firebase/auth";
 import { motion } from "framer-motion";
@@ -15,13 +15,39 @@ import {
   setDoc,
   updateDoc,
   where,
+  writeBatch,
+  type DocumentData,
+  type Firestore,
+  type UpdateData,
 } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronRight, Copy, Pencil, Plus, RotateCcw, Settings, Trash2, X } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  Menu,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Settings,
+  Trash2,
+  Undo2,
+  Upload,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { SubmittingButton } from "@/components/SubmittingButton";
 import { calculateVickreyBreakdown, formatCurrency, normalizeItemName } from "@/lib/auction/calculations";
+import { auctionItemValidationErrors } from "@/lib/auction/item-validation";
+import {
+  allSelectedPublishable,
+  allSelectedUnpublishable,
+  canPublishItem,
+  canUnpublishItem,
+  itemFormWouldBeValid,
+  publishableDraftItems,
+} from "@/lib/auction/item-publish";
 import type { Auction, AuctionItem, Bid } from "@/lib/auction/types";
 import { auth, db } from "@/lib/firebase/client";
 import { useRequiredFirebaseUser } from "@/components/useRequiredFirebaseUser";
@@ -41,7 +67,30 @@ const emptyItemForm = {
 
 type ItemForm = typeof emptyItemForm;
 type AdminTab = "current" | "all";
-type AdminSubmission = "item" | "open" | "settle" | "reopen";
+type AdminSubmission =
+  | "item"
+  | "open"
+  | "settle"
+  | "reopen"
+  | "bulkPublish"
+  | "bulkUnpublish"
+  | "bulkRemove"
+  | "publishAll";
+
+const FIRESTORE_BATCH_SAFE = 450;
+
+async function commitBatchedUpdates(
+  firestore: Firestore,
+  ops: { ref: ReturnType<typeof doc>; data: UpdateData<DocumentData> }[],
+) {
+  for (let i = 0; i < ops.length; i += FIRESTORE_BATCH_SAFE) {
+    const batch = writeBatch(firestore);
+    for (const op of ops.slice(i, i + FIRESTORE_BATCH_SAFE)) {
+      batch.update(op.ref, op.data);
+    }
+    await batch.commit();
+  }
+}
 
 export function AdminDashboard({ auctionId }: Props) {
   const router = useRouter();
@@ -61,6 +110,11 @@ export function AdminDashboard({ auctionId }: Props) {
   const [isSettleModalOpen, setIsSettleModalOpen] = useState(false);
   const [isReopenModalOpen, setIsReopenModalOpen] = useState(false);
   const [submittingAction, setSubmittingAction] = useState<AdminSubmission | null>(null);
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(() => new Set());
+  const [mobileFabOpen, setMobileFabOpen] = useState(false);
+  const [isPublishAllModalOpen, setIsPublishAllModalOpen] = useState(false);
+  const [bulkConfirmModal, setBulkConfirmModal] = useState<null | "publish" | "unpublish" | "delete">(null);
+  const selectAllCheckboxRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -96,6 +150,7 @@ export function AdminDashboard({ auctionId }: Props) {
     return {
       rows,
       rowsByItemId,
+      bidsByItem,
       currentRows: rows.filter((row) => row.topBid),
       revenue: rows.reduce((sum, row) => sum + row.revenue, 0),
       totalBids: bids.length,
@@ -156,7 +211,7 @@ export function AdminDashboard({ auctionId }: Props) {
   async function saveItem(event: FormEvent) {
     event.preventDefault();
     if (submittingAction === "item") return;
-    if (!hasValidItemForm(itemForm)) {
+    if (!itemFormWouldBeValid(itemForm)) {
       toast("Item name, starting price, and lock-in price are required.");
       return;
     }
@@ -175,16 +230,20 @@ export function AdminDashboard({ auctionId }: Props) {
     setSubmittingAction("item");
     try {
       if (editingItem) {
+        const statusPatch: Record<string, string> = {};
+        if (editingItem.status === "invalid" || editingItem.status === "removed") {
+          statusPatch.status = "draft";
+        }
         await updateDoc(doc(db, `auctions/${auctionId}/items/${editingItem.id}`), {
           ...payload,
           importValidationErrors: deleteField(),
-          ...(editingItem.status === "invalid" || editingItem.status === "removed" ? { status: "open" } : {}),
+          ...statusPatch,
         });
       } else {
         const itemRef = doc(collection(db, `auctions/${auctionId}/items`));
         await setDoc(itemRef, {
           ...payload,
-          status: "open",
+          status: "draft",
           createdAt: serverTimestamp(),
         });
       }
@@ -317,10 +376,10 @@ export function AdminDashboard({ auctionId }: Props) {
   }
 
   async function restoreItem(item: AuctionItem) {
-    const importValidationErrors = validationErrorsForItem(item);
+    const errors = auctionItemValidationErrors(item);
     await updateDoc(doc(db, `auctions/${auctionId}/items/${item.id}`), {
-      status: importValidationErrors.length ? "invalid" : "open",
-      importValidationErrors: importValidationErrors.length ? importValidationErrors : deleteField(),
+      status: errors.length ? "invalid" : "draft",
+      importValidationErrors: errors.length ? errors : deleteField(),
       updatedAt: serverTimestamp(),
     });
   }
@@ -366,10 +425,192 @@ export function AdminDashboard({ auctionId }: Props) {
     [allItemsFuse, allTableItems, trimmedSearchQuery],
   );
 
+  const visibleIdSet = useMemo(
+    () => new Set(filteredAllTableItems.map((item) => item.id)),
+    [filteredAllTableItems],
+  );
+
+  const selectedItemsList = useMemo(
+    () => items.filter((item) => selectedItemIds.has(item.id)),
+    [items, selectedItemIds],
+  );
+
+  const effectiveSelectedItems = useMemo(
+    () => selectedItemsList.filter((item) => visibleIdSet.has(item.id)),
+    [selectedItemsList, visibleIdSet],
+  );
+
+  const publishDraftCandidates = useMemo(() => publishableDraftItems(items), [items]);
+
+  const selectionCanPublish = allSelectedPublishable(effectiveSelectedItems);
+  const selectionCanUnpublish = allSelectedUnpublishable(effectiveSelectedItems, analytics.bidsByItem);
+  const selectionHasRemovable = effectiveSelectedItems.some((item) => item.status !== "removed");
+
+  const allVisibleSelected =
+    filteredAllTableItems.length > 0 && filteredAllTableItems.every((item) => selectedItemIds.has(item.id));
+  const someVisibleSelected = filteredAllTableItems.some((item) => selectedItemIds.has(item.id));
+
+  useEffect(() => {
+    const el = selectAllCheckboxRef.current;
+    if (!el) return;
+    el.indeterminate = someVisibleSelected && !allVisibleSelected;
+  }, [someVisibleSelected, allVisibleSelected]);
+
+  const bulkDeleteLockedCount = useMemo(() => {
+    return effectiveSelectedItems.filter((item) => {
+      if (item.status === "removed") return false;
+      const row = analytics.rowsByItemId.get(item.id);
+      return isLockedIn(item, row?.topBid);
+    }).length;
+  }, [analytics.rowsByItemId, effectiveSelectedItems]);
+
+  function toggleItemSelected(itemId: string) {
+    setSelectedItemIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  }
+
+  function selectAllVisibleItems() {
+    setSelectedItemIds(new Set(filteredAllTableItems.map((item) => item.id)));
+  }
+
+  function clearItemSelection() {
+    setMobileFabOpen(false);
+    setSelectedItemIds(new Set());
+  }
+
+  async function publishItemsDocs(targetItems: AuctionItem[]) {
+    const publishable = targetItems.filter(canPublishItem);
+    const ops = publishable.map((item) => ({
+      ref: doc(db, `auctions/${auctionId}/items/${item.id}`),
+      data: {
+        status: "open",
+        importValidationErrors: deleteField(),
+        updatedAt: serverTimestamp(),
+      } as UpdateData<DocumentData>,
+    }));
+    if (!ops.length) return;
+    await commitBatchedUpdates(db, ops);
+  }
+
+  async function unpublishItemsDocs(targetItems: AuctionItem[]) {
+    const bidsByItem = analytics.bidsByItem;
+    const ops = targetItems
+      .filter((item) => canUnpublishItem(item, (bidsByItem.get(item.id)?.length ?? 0) > 0))
+      .map((item) => ({
+        ref: doc(db, `auctions/${auctionId}/items/${item.id}`),
+        data: { status: "draft", updatedAt: serverTimestamp() } as UpdateData<DocumentData>,
+      }));
+    if (!ops.length) return;
+    await commitBatchedUpdates(db, ops);
+  }
+
+  async function removeItemsDocs(targetItems: AuctionItem[]) {
+    const ops = targetItems
+      .filter((item) => item.status !== "removed")
+      .map((item) => ({
+        ref: doc(db, `auctions/${auctionId}/items/${item.id}`),
+        data: { status: "removed", updatedAt: serverTimestamp() } as UpdateData<DocumentData>,
+      }));
+    if (!ops.length) return;
+    await commitBatchedUpdates(db, ops);
+  }
+
+  async function confirmBulkPublish() {
+    if (submittingAction) return;
+    setSubmittingAction("bulkPublish");
+    try {
+      const targets = effectiveSelectedItems.filter(canPublishItem);
+      await publishItemsDocs(targets);
+      toast(`Published ${targets.length} item(s).`);
+      clearItemSelection();
+      setBulkConfirmModal(null);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to publish items.");
+    } finally {
+      setSubmittingAction(null);
+    }
+  }
+
+  async function confirmBulkUnpublish() {
+    if (submittingAction) return;
+    setSubmittingAction("bulkUnpublish");
+    try {
+      const bidsByItem = analytics.bidsByItem;
+      const targets = effectiveSelectedItems.filter((item) =>
+        canUnpublishItem(item, (bidsByItem.get(item.id)?.length ?? 0) > 0),
+      );
+      await unpublishItemsDocs(effectiveSelectedItems);
+      toast(`Unpublished ${targets.length} item(s).`);
+      clearItemSelection();
+      setBulkConfirmModal(null);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to unpublish items.");
+    } finally {
+      setSubmittingAction(null);
+    }
+  }
+
+  async function confirmBulkRemove() {
+    if (submittingAction) return;
+    setSubmittingAction("bulkRemove");
+    try {
+      const targets = effectiveSelectedItems.filter((item) => item.status !== "removed");
+      await removeItemsDocs(targets);
+      toast(`Removed ${targets.length} item(s).`);
+      clearItemSelection();
+      setBulkConfirmModal(null);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to remove items.");
+    } finally {
+      setSubmittingAction(null);
+    }
+  }
+
+  async function confirmPublishAllDrafts() {
+    if (submittingAction) return;
+    setSubmittingAction("publishAll");
+    try {
+      await publishItemsDocs(publishDraftCandidates);
+      toast(`Published ${publishDraftCandidates.length} draft item(s).`);
+      setIsPublishAllModalOpen(false);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to publish drafts.");
+    } finally {
+      setSubmittingAction(null);
+    }
+  }
+
+  async function publishSingleItem(item: AuctionItem) {
+    if (!canPublishItem(item)) return;
+    try {
+      await publishItemsDocs([item]);
+      toast(`Published ${item.name}.`);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to publish item.");
+    }
+  }
+
+  async function unpublishSingleItem(item: AuctionItem) {
+    const hasBids = (analytics.bidsByItem.get(item.id)?.length ?? 0) > 0;
+    if (!canUnpublishItem(item, hasBids)) return;
+    try {
+      await unpublishItemsDocs([item]);
+      toast(`Unpublished ${item.name}.`);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to unpublish item.");
+    }
+  }
+
   if (!user) return null;
 
   return (
-    <div className="min-h-screen bg-slate-100 px-4 py-6 text-slate-950 sm:px-6 lg:px-8">
+    <div
+      className={`min-h-screen bg-slate-100 px-4 py-6 text-slate-950 sm:px-6 lg:px-8 ${activeTab === "all" ? "pb-28 md:pb-6" : ""}`}
+    >
       <div className="mx-auto max-w-7xl space-y-6">
         <header className="rounded-3xl bg-slate-950 p-6 text-white shadow-sm">
           <p className="text-sm uppercase tracking-[0.3em] text-amber-300">Admin Dashboard</p>
@@ -529,10 +770,64 @@ export function AdminDashboard({ auctionId }: Props) {
                   All items
                 </button>
               </div>
-              <button className="button order-1 inline-flex gap-2 sm:order-2" onClick={openNewItemModal}>
-                <Plus size={18} />
-                Add item
-              </button>
+              {activeTab === "all" && (
+                <div className="order-1 hidden flex-wrap items-center justify-end gap-2 sm:order-2 md:flex">
+                  <button
+                    className="button-secondary whitespace-nowrap px-3 py-2 text-sm"
+                    disabled={publishDraftCandidates.length === 0}
+                    type="button"
+                    onClick={() => setIsPublishAllModalOpen(true)}
+                  >
+                    Publish all drafts
+                  </button>
+                  {effectiveSelectedItems.length >= 1 && (
+                    <>
+                      {selectionCanPublish && (
+                        <button
+                          className="icon-button rounded-full bg-white shadow-sm"
+                          aria-label="Publish selected items"
+                          title="Publish selected"
+                          type="button"
+                          onClick={() => setBulkConfirmModal("publish")}
+                        >
+                          <Upload size={18} />
+                        </button>
+                      )}
+                      {selectionCanUnpublish && (
+                        <button
+                          className="icon-button rounded-full bg-white shadow-sm"
+                          aria-label="Unpublish selected items"
+                          title="Unpublish selected"
+                          type="button"
+                          onClick={() => setBulkConfirmModal("unpublish")}
+                        >
+                          <Undo2 size={18} />
+                        </button>
+                      )}
+                      {selectionHasRemovable && (
+                        <button
+                          className="icon-button rounded-full bg-white text-red-700 shadow-sm hover:bg-red-50"
+                          aria-label="Remove selected items"
+                          title="Remove selected"
+                          type="button"
+                          onClick={() => setBulkConfirmModal("delete")}
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      )}
+                    </>
+                  )}
+                  <button
+                    className="icon-button rounded-full bg-slate-950 text-white shadow-sm hover:bg-slate-800"
+                    aria-label="Add item"
+                    title="Add item"
+                    type="button"
+                    onClick={openNewItemModal}
+                  >
+                    <Plus size={20} />
+                  </button>
+                </div>
+              )}
             </div>
             <div className="relative">
               <input
@@ -628,10 +923,32 @@ export function AdminDashboard({ auctionId }: Props) {
                   <span>Invalid item count: {analytics.invalidItems}</span>
                 </div>
               </div>
+              <div className="flex md:hidden">
+                <button
+                  className="button-secondary text-sm"
+                  disabled={publishDraftCandidates.length === 0}
+                  type="button"
+                  onClick={() => setIsPublishAllModalOpen(true)}
+                >
+                  Publish all drafts
+                </button>
+              </div>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[860px] text-left text-sm">
+                <table className="w-full min-w-[920px] text-left text-sm">
                   <thead className="text-slate-500">
                     <tr>
+                      <th className="w-10 py-3 pr-2">
+                        <input
+                          ref={selectAllCheckboxRef}
+                          aria-label="Select all visible items"
+                          checked={allVisibleSelected}
+                          type="checkbox"
+                          onChange={(event) => {
+                            if (event.target.checked) selectAllVisibleItems();
+                            else clearItemSelection();
+                          }}
+                        />
+                      </th>
                       <th className="py-3">Item</th>
                       <th>Item notes</th>
                       <th>MSRP</th>
@@ -647,6 +964,14 @@ export function AdminDashboard({ auctionId }: Props) {
                         className={`border-t border-slate-100 ${item.status === "invalid" ? "bg-yellow-50" : ""}`}
                         key={item.id}
                       >
+                        <td className="pr-2 align-middle">
+                          <input
+                            aria-label={`Select ${item.name}`}
+                            checked={selectedItemIds.has(item.id)}
+                            type="checkbox"
+                            onChange={() => toggleItemSelected(item.id)}
+                          />
+                        </td>
                         <td className="py-3 font-medium">{item.name}</td>
                         <td className="max-w-xs text-slate-600">
                           <p>{item.notes || "-"}</p>
@@ -660,7 +985,29 @@ export function AdminDashboard({ auctionId }: Props) {
                         <td>{formatCurrency(item.startingPrice)}</td>
                         <td>{formatCurrency(item.lockInPrice)}</td>
                         <td>{item.status}</td>
-                        <td>
+                        <td className="whitespace-nowrap">
+                          {canPublishItem(item) && (
+                            <button
+                              className="icon-button"
+                              aria-label={`Publish ${item.name}`}
+                              title="Publish"
+                              type="button"
+                              onClick={() => void publishSingleItem(item)}
+                            >
+                              <Upload size={16} />
+                            </button>
+                          )}
+                          {canUnpublishItem(item, (analytics.bidsByItem.get(item.id)?.length ?? 0) > 0) && (
+                            <button
+                              className="icon-button"
+                              aria-label={`Unpublish ${item.name}`}
+                              title="Unpublish"
+                              type="button"
+                              onClick={() => void unpublishSingleItem(item)}
+                            >
+                              <Undo2 size={16} />
+                            </button>
+                          )}
                           <button
                             className="icon-button"
                             aria-label={`Edit ${item.name}`}
@@ -691,7 +1038,7 @@ export function AdminDashboard({ auctionId }: Props) {
                     ))}
                     {!filteredAllTableItems.length && (
                       <tr className="border-t border-slate-100">
-                        <td className="py-6 text-center text-slate-500" colSpan={7}>
+                        <td className="py-6 text-center text-slate-500" colSpan={8}>
                           {trimmedSearchQuery ? "No items match your search." : "No items to show."}
                         </td>
                       </tr>
@@ -791,8 +1138,8 @@ export function AdminDashboard({ auctionId }: Props) {
           >
             <h2 className="text-2xl font-bold">Open auction?</h2>
             <p className="mt-3 text-slate-600">
-              This will let guests place, edit, and lock in bids. Guests can already view items while the
-              auction is pending.
+              This will let guests place, edit, and lock in bids. Guests can browse <strong>published</strong>{" "}
+              items while the auction is pending; draft items stay admin-only until you publish them.
             </p>
             <p className="mt-3 font-semibold text-slate-950">Are you sure?</p>
             <div className="mt-5 flex flex-col gap-2 sm:flex-row">
@@ -886,6 +1233,219 @@ export function AdminDashboard({ auctionId }: Props) {
           </motion.div>
         </div>
       )}
+
+      {activeTab === "all" && (
+        <div className="pointer-events-none fixed bottom-6 right-6 z-30 md:hidden">
+          <div className="pointer-events-auto flex flex-col items-end gap-2">
+            {mobileFabOpen && effectiveSelectedItems.length >= 1 && (
+              <motion.div
+                animate={{ opacity: 1, y: 0 }}
+                className="flex min-w-[11rem] flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl"
+                initial={{ opacity: 0, y: 12 }}
+              >
+                {selectionCanPublish && (
+                  <button
+                    className="rounded-xl px-4 py-3 text-left text-sm font-semibold text-slate-950 hover:bg-slate-50"
+                    type="button"
+                    onClick={() => {
+                      setMobileFabOpen(false);
+                      setBulkConfirmModal("publish");
+                    }}
+                  >
+                    Publish
+                  </button>
+                )}
+                {selectionCanUnpublish && (
+                  <button
+                    className="rounded-xl px-4 py-3 text-left text-sm font-semibold text-slate-950 hover:bg-slate-50"
+                    type="button"
+                    onClick={() => {
+                      setMobileFabOpen(false);
+                      setBulkConfirmModal("unpublish");
+                    }}
+                  >
+                    Unpublish
+                  </button>
+                )}
+                {selectionHasRemovable && (
+                  <button
+                    className="rounded-xl px-4 py-3 text-left text-sm font-semibold text-red-700 hover:bg-red-50"
+                    type="button"
+                    onClick={() => {
+                      setMobileFabOpen(false);
+                      setBulkConfirmModal("delete");
+                    }}
+                  >
+                    Delete
+                  </button>
+                )}
+              </motion.div>
+            )}
+            <button
+              aria-label={effectiveSelectedItems.length >= 1 ? "Item actions" : "Add item"}
+              className="flex h-14 w-14 items-center justify-center rounded-full bg-slate-950 text-white shadow-lg transition hover:bg-slate-800"
+              type="button"
+              onClick={() => {
+                if (effectiveSelectedItems.length === 0) openNewItemModal();
+                else setMobileFabOpen((open) => !open);
+              }}
+            >
+              {effectiveSelectedItems.length >= 1 ? <Menu size={24} /> : <Plus size={24} />}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isPublishAllModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+          <motion.div
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-xl"
+            initial={{ opacity: 0, y: 24 }}
+          >
+            <h2 className="text-2xl font-bold">Publish all drafts?</h2>
+            <p className="mt-3 text-slate-600">
+              This will publish <strong>{publishDraftCandidates.length}</strong> valid draft item(s). Guests
+              will be able to see published items in the auction catalog.
+            </p>
+            <p className="mt-3 font-semibold text-slate-950">Are you sure?</p>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+              <SubmittingButton
+                className="button flex-1"
+                disabled={publishDraftCandidates.length === 0}
+                isSubmitting={submittingAction === "publishAll"}
+                submittingLabel="Publishing..."
+                onClick={confirmPublishAllDrafts}
+              >
+                Yes, publish all
+              </SubmittingButton>
+              <button
+                className="button-ghost flex-1"
+                disabled={submittingAction === "publishAll"}
+                type="button"
+                onClick={() => setIsPublishAllModalOpen(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {bulkConfirmModal === "publish" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+          <motion.div
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-xl"
+            initial={{ opacity: 0, y: 24 }}
+          >
+            <h2 className="text-2xl font-bold">Publish selected items?</h2>
+            <p className="mt-3 text-slate-600">
+              <strong>{effectiveSelectedItems.filter(canPublishItem).length}</strong> draft item(s) will
+              become live for guests (status: open).
+            </p>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+              <SubmittingButton
+                className="button flex-1"
+                isSubmitting={submittingAction === "bulkPublish"}
+                submittingLabel="Publishing..."
+                onClick={confirmBulkPublish}
+              >
+                Publish
+              </SubmittingButton>
+              <button
+                className="button-ghost flex-1"
+                disabled={submittingAction === "bulkPublish"}
+                type="button"
+                onClick={() => setBulkConfirmModal(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {bulkConfirmModal === "unpublish" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+          <motion.div
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-xl"
+            initial={{ opacity: 0, y: 24 }}
+          >
+            <h2 className="text-2xl font-bold">Unpublish selected items?</h2>
+            <p className="mt-3 text-slate-600">
+              <strong>
+                {
+                  effectiveSelectedItems.filter((item) =>
+                    canUnpublishItem(item, (analytics.bidsByItem.get(item.id)?.length ?? 0) > 0),
+                  ).length
+                }
+              </strong>{" "}
+              item(s) with no bids will return to draft and will be hidden from guests.
+            </p>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+              <SubmittingButton
+                className="button flex-1"
+                isSubmitting={submittingAction === "bulkUnpublish"}
+                submittingLabel="Unpublishing..."
+                onClick={confirmBulkUnpublish}
+              >
+                Unpublish
+              </SubmittingButton>
+              <button
+                className="button-ghost flex-1"
+                disabled={submittingAction === "bulkUnpublish"}
+                type="button"
+                onClick={() => setBulkConfirmModal(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {bulkConfirmModal === "delete" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+          <motion.div
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-xl"
+            initial={{ opacity: 0, y: 24 }}
+          >
+            <h2 className="text-2xl font-bold">Remove selected items?</h2>
+            <p className="mt-3 text-slate-600">
+              <strong>{effectiveSelectedItems.filter((item) => item.status !== "removed").length}</strong>{" "}
+              item(s) will be marked removed.
+              {bulkDeleteLockedCount > 0 ? (
+                <>
+                  {" "}
+                  <strong>{bulkDeleteLockedCount}</strong> are locked in with bids—guest bidding may still be
+                  affected until you resolve those items.
+                </>
+              ) : null}
+            </p>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+              <SubmittingButton
+                className="flex-1 rounded-full bg-red-600 px-5 py-3 font-bold text-white transition hover:bg-red-700"
+                isSubmitting={submittingAction === "bulkRemove"}
+                submittingLabel="Removing..."
+                onClick={confirmBulkRemove}
+              >
+                Remove
+              </SubmittingButton>
+              <button
+                className="button-secondary flex-1"
+                disabled={submittingAction === "bulkRemove"}
+                type="button"
+                onClick={() => setBulkConfirmModal(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }
@@ -948,32 +1508,4 @@ function formatLockedInBid(item: AuctionItem, topBid?: Bid) {
 
 function isLockedIn(item: AuctionItem, topBid?: Bid) {
   return item.status === "locked" || topBid?.type === "locked";
-}
-
-function hasValidItemForm(itemForm: ItemForm) {
-  return (
-    itemForm.name.trim().length > 0 &&
-    isNonnegativeNumber(itemForm.startingPrice) &&
-    isNonnegativeNumber(itemForm.lockInPrice)
-  );
-}
-
-function validationErrorsForItem(item: AuctionItem) {
-  if (item.importValidationErrors?.length) return item.importValidationErrors;
-
-  const errors: string[] = [];
-  if (!item.name.trim()) errors.push("Item name is missing.");
-  if (!Number.isFinite(item.startingPrice) || item.startingPrice < 0) {
-    errors.push("Starting price is missing or is not a valid non-negative number.");
-  }
-  if (!Number.isFinite(item.lockInPrice) || item.lockInPrice < 0) {
-    errors.push("Lock-in price is missing or is not a valid non-negative number.");
-  }
-  return errors;
-}
-
-function isNonnegativeNumber(value: string) {
-  if (!value.trim()) return false;
-  const numberValue = Number(value);
-  return Number.isFinite(numberValue) && numberValue >= 0;
 }

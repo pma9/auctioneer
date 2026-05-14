@@ -1,0 +1,82 @@
+# =============================================================================
+# Secrets & environment — never index these
+# =============================================================================
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+.envrc
+.direnv/
+
+# =============================================================================
+# Keys, certificates, keystores
+# =============================================================================
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+*.keystore
+*.jks
+
+# =============================================================================
+# Cloud & API credential files
+# =============================================================================
+*-credentials.json
+*credentials*.json
+service-account*.json
+*-service-account*.json
+.gcloud/
+.aws/credentials
+.aws/config
+**/aws/credentials
+**/aws/config
+kubeconfig
+*.kubeconfig
+
+# =============================================================================
+# Token storage & local secret dirs
+# =============================================================================
+.secrets/
+secrets/
+**/secrets/
+*.secret
+auth.json
+.token
+tokens/
+
+# =============================================================================
+# Package / registry auth (often contains tokens)
+# =============================================================================
+.npmrc
+.pypirc
+.netrc
+.yarnrc.yml
+
+# =============================================================================
+# Local data that may contain PII or app secrets
+# =============================================================================
+*.db
+*.sqlite
+*.sqlite3
+/local.db
+
+# =============================================================================
+# Large / generated paths (reduces noise; mirrors common .gitignore)
+# =============================================================================
+node_modules/
+.svelte-kit/
+build/
+dist/
+.output/
+.vercel/
+.netlify/
+.wrangler/
+static/models/
