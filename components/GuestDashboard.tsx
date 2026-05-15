@@ -1,10 +1,11 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import Fuse from "fuse.js";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
-import { collection, collectionGroup, doc, onSnapshot, query, where } from "firebase/firestore";
+import { collection, collectionGroup, doc, onSnapshot, query, updateDoc, where } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Lock, Pencil, Trash2, X } from "lucide-react";
@@ -13,7 +14,12 @@ import { SubmittingButton } from "@/components/SubmittingButton";
 import { toast } from "sonner";
 import { isWholeDollarBid, maxAllowedBidForItem } from "@/lib/auction/bid-limits";
 import { calculateFinancialSummary, formatCurrency } from "@/lib/auction/calculations";
-import type { Auction, AuctionItem, Bid } from "@/lib/auction/types";
+import {
+  isItemHighlightedForLatestPublishBatch,
+  shouldShowNewItemsNotice,
+  sortItemsByPublishedAtDesc,
+} from "@/lib/auction/item-notifications";
+import type { Auction, AuctionItem, Bid, UserAuctionMembership } from "@/lib/auction/types";
 import { auth, db } from "@/lib/firebase/client";
 
 type Props = {
@@ -50,7 +56,7 @@ export function GuestDashboard({ auctionId }: Props) {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [auction, setAuction] = useState<Auction | null>(null);
-  const [guestDisplayName, setGuestDisplayName] = useState("Guest");
+  const [guestMembership, setGuestMembership] = useState<UserAuctionMembership | null>(null);
   const [items, setItems] = useState<AuctionItem[]>([]);
   const [myBids, setMyBids] = useState<Bid[]>([]);
   const [activeTab, setActiveTab] = useState<"auction" | "bids">("auction");
@@ -63,13 +69,15 @@ export function GuestDashboard({ auctionId }: Props) {
   const [isSavingBid, setIsSavingBid] = useState(false);
   const [isLockingIn, setIsLockingIn] = useState(false);
   const [isRemovingBid, setIsRemovingBid] = useState(false);
+  const [isDismissingNewItemsNotice, setIsDismissingNewItemsNotice] = useState(false);
 
   useEffect(() => onAuthStateChanged(auth, setUser), []);
 
   useEffect(() => {
-    const unsubAuction = onSnapshot(doc(db, `auctions/${auctionId}`), (snapshot) =>
-      setAuction(snapshot.exists() ? ({ id: snapshot.id, ...snapshot.data() } as Auction) : null),
-    );
+    const unsubAuction = onSnapshot(doc(db, `auctions/${auctionId}`), (snapshot) => {
+      const nextAuction = snapshot.exists() ? ({ id: snapshot.id, ...snapshot.data() } as Auction) : null;
+      setAuction(nextAuction);
+    });
     const itemsQuery = query(
       collection(db, `auctions/${auctionId}/items`),
       where("status", "in", ["open", "locked", "settled"]),
@@ -95,7 +103,12 @@ export function GuestDashboard({ auctionId }: Props) {
     if (!user) return;
 
     return onSnapshot(doc(db, `users/${user.uid}/auctions/${auctionId}`), (snapshot) => {
-      setGuestDisplayName(String(snapshot.get("displayName") ?? "Guest"));
+      if (!snapshot.exists()) {
+        setGuestMembership(null);
+        return;
+      }
+      const data = snapshot.data() as UserAuctionMembership;
+      setGuestMembership({ ...data });
     });
   }, [auctionId, user]);
 
@@ -108,10 +121,12 @@ export function GuestDashboard({ auctionId }: Props) {
     : isAuctionSettling
       ? "This auction is being closed out. Bids can no longer be changed."
       : "This auction is closed. Bids can no longer be changed.";
+  const guestDisplayName = guestMembership?.displayName?.trim() || "Guest";
   const activeItems = useMemo(
     () => items.filter((item) => item.status === "open" || item.status === "locked"),
     [items],
   );
+  const sortedActiveItems = useMemo(() => sortItemsByPublishedAtDesc(activeItems), [activeItems]);
   const bidsByItem = useMemo(() => new Map(myBids.map((bid) => [bid.itemId, bid])), [myBids]);
   const itemsById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const bidRows = useMemo(
@@ -132,12 +147,12 @@ export function GuestDashboard({ auctionId }: Props) {
   const trimmedSearchQuery = searchQuery.trim();
   const activeItemsFuse = useMemo(
     () =>
-      new Fuse(activeItems, {
+      new Fuse(sortedActiveItems, {
         keys: ["name", "notes", "keywords"],
         threshold: 0.35,
         ignoreLocation: true,
       }),
-    [activeItems],
+    [sortedActiveItems],
   );
   const currentBidRowsFuse = useMemo(
     () =>
@@ -157,13 +172,12 @@ export function GuestDashboard({ auctionId }: Props) {
       }),
     [invalidBidRows],
   );
-  const filteredActiveItems = useMemo(
-    () =>
-      trimmedSearchQuery
-        ? activeItemsFuse.search(trimmedSearchQuery).map((result) => result.item)
-        : activeItems,
-    [activeItems, activeItemsFuse, trimmedSearchQuery],
-  );
+  const filteredActiveItems = useMemo(() => {
+    const matched = trimmedSearchQuery
+      ? activeItemsFuse.search(trimmedSearchQuery).map((result) => result.item)
+      : sortedActiveItems;
+    return sortItemsByPublishedAtDesc(matched);
+  }, [sortedActiveItems, activeItemsFuse, trimmedSearchQuery]);
   const filteredCurrentBidRows = useMemo(
     () =>
       trimmedSearchQuery
@@ -371,6 +385,27 @@ export function GuestDashboard({ auctionId }: Props) {
     router.replace("/");
   }
 
+  async function dismissNewItemsNotice() {
+    if (!user || auction?.latestItemsPublishedAt == null || isDismissingNewItemsNotice) return;
+    setIsDismissingNewItemsNotice(true);
+    try {
+      await updateDoc(doc(db, `users/${user.uid}/auctions/${auctionId}`), {
+        newItemsNotificationDismissedAt: auction.latestItemsPublishedAt,
+      });
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to dismiss notification.");
+    } finally {
+      setIsDismissingNewItemsNotice(false);
+    }
+  }
+
+  const showNewItemsNotice =
+    Boolean(auction) &&
+    shouldShowNewItemsNotice(
+      auction?.latestItemsPublishedAt,
+      guestMembership?.newItemsNotificationDismissedAt,
+    );
+
   if (!user) {
     return (
       <div className="flex min-h-screen items-center justify-center px-6">
@@ -450,6 +485,47 @@ export function GuestDashboard({ auctionId }: Props) {
           </section>
         )}
 
+        {typeof document !== "undefined" &&
+          showNewItemsNotice &&
+          createPortal(
+            <div
+              aria-labelledby="new-items-dialog-title"
+              aria-modal="true"
+              className="fixed inset-0 z-[100] flex min-h-[100dvh] w-full max-w-[100vw] items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm sm:min-h-screen"
+              role="dialog"
+            >
+              <motion.div
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                className="w-full max-w-lg rounded-3xl border border-amber-200 bg-gradient-to-b from-amber-50 to-white p-8 shadow-2xl sm:p-10"
+                initial={{ opacity: 0, scale: 0.96, y: 16 }}
+                transition={{ type: "spring", stiffness: 320, damping: 28 }}
+              >
+                <div className="flex flex-col items-center text-center">
+                  <p className="text-sm font-semibold uppercase tracking-[0.25em] text-amber-800">Heads up</p>
+                  <h2
+                    className="mt-3 text-3xl font-bold text-slate-950 sm:text-4xl"
+                    id="new-items-dialog-title"
+                  >
+                    New items are added
+                  </h2>
+                  <p className="mt-4 max-w-sm text-base leading-relaxed text-slate-600">
+                    Check the auction list — new listings are highlighted and sorted to the top by publish
+                    date.
+                  </p>
+                  <button
+                    className="button mt-8 w-full max-w-xs text-lg py-4 sm:text-xl disabled:opacity-60"
+                    disabled={isDismissingNewItemsNotice}
+                    type="button"
+                    onClick={() => void dismissNewItemsNotice()}
+                  >
+                    {isDismissingNewItemsNotice ? "Saving…" : "Got it"}
+                  </button>
+                </div>
+              </motion.div>
+            </div>,
+            document.body,
+          )}
+
         <section className="grid gap-3 grid-cols-2">
           {isAuctionClosed ? (
             <>
@@ -518,11 +594,24 @@ export function GuestDashboard({ auctionId }: Props) {
             {filteredActiveItems.map((item) => {
               const myBid = bidsByItem.get(item.id);
               const lockedByAnotherGuest = isLockedByAnotherGuest(item, user.uid);
+              const isNewHighlight = isItemHighlightedForLatestPublishBatch(
+                item,
+                auction?.latestItemsPublishedAt,
+              );
               return (
-                <motion.article layout className="card flex flex-col gap-4" key={item.id}>
+                <motion.article
+                  layout
+                  className={`card flex flex-col gap-4 ${isNewHighlight ? "ring-2 ring-amber-400/70 border-amber-200 bg-amber-50/40" : ""}`}
+                  key={item.id}
+                >
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
                       {item.status}
+                      {isNewHighlight ? (
+                        <span className="ml-2 rounded-full bg-amber-200/80 px-2 py-0.5 text-[0.65rem] font-bold tracking-normal text-amber-950">
+                          New
+                        </span>
+                      ) : null}
                     </p>
                     <h2 className="mt-2 text-xl font-bold">{item.name}</h2>
                     <p className="mt-2 line-clamp-3 text-sm text-slate-600">

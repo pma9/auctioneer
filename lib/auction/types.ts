@@ -17,6 +17,8 @@ export type Auction = {
   reopenedAt?: unknown;
   startsAt?: unknown;
   closesAt?: unknown;
+  /** Server timestamp; bumped when one or more items are published (draft → open). */
+  latestItemsPublishedAt?: unknown;
 };
 
 export type AuctionItem = {
@@ -38,6 +40,8 @@ export type AuctionItem = {
   importValidationErrors?: string[];
   updatedAt?: unknown;
   createdAt?: unknown;
+  /** Set when the item is published (status becomes open). */
+  publishedAt?: unknown;
   settledAt?: unknown;
   lockedAt?: unknown;
 };
@@ -74,4 +78,17 @@ export type ItemBidBreakdown = {
 export type FinancialSummary = {
   totalMaxCommitment: number;
   minimumDue: number;
+};
+
+/** `users/{uid}/auctions/{auctionId}` — guest membership; server also writes on join. */
+export type UserAuctionMembership = {
+  auctionId?: string;
+  role?: string;
+  displayName?: string;
+  phoneHash?: string;
+  phoneLast4?: string;
+  joinedAt?: unknown;
+  updatedAt?: unknown;
+  /** When the guest last dismissed the “new items” notice; compare to `Auction.latestItemsPublishedAt`. */
+  newItemsNotificationDismissedAt?: unknown;
 };

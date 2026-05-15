@@ -6,5 +6,5 @@ type PageProps = {
 
 export default async function GuestPage({ params }: PageProps) {
   const { auctionId } = await params;
-  return <GuestDashboard auctionId={auctionId} />;
+  return <GuestDashboard key={auctionId} auctionId={auctionId} />;
 }

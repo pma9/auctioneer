@@ -499,16 +499,48 @@ export function AdminDashboard({ auctionId }: Props) {
 
   async function publishItemsDocs(targetItems: AuctionItem[]) {
     const publishable = targetItems.filter(canPublishItem);
-    const ops = publishable.map((item) => ({
+    const itemOps = publishable.map((item) => ({
       ref: doc(db, `auctions/${auctionId}/items/${item.id}`),
       data: {
         status: "open",
         importValidationErrors: deleteField(),
+        publishedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       } as UpdateData<DocumentData>,
     }));
-    if (!ops.length) return;
-    await commitBatchedUpdates(db, ops);
+    if (!itemOps.length) return;
+
+    const auctionOp = {
+      ref: doc(db, `auctions/${auctionId}`),
+      data: {
+        latestItemsPublishedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      } as UpdateData<DocumentData>,
+    };
+
+    /** Same Firestore batch commit time for items + `latestItemsPublishedAt` when possible (guest highlight). */
+    const maxOps = FIRESTORE_BATCH_SAFE;
+    let idx = 0;
+    while (idx < itemOps.length) {
+      const remaining = itemOps.length - idx;
+      const batch = writeBatch(db);
+
+      if (remaining <= maxOps - 1) {
+        for (let j = 0; j < remaining; j++) {
+          batch.update(itemOps[idx + j].ref, itemOps[idx + j].data);
+        }
+        batch.update(auctionOp.ref, auctionOp.data);
+        await batch.commit();
+        break;
+      }
+
+      const chunkSize = remaining === maxOps ? maxOps - 1 : maxOps;
+      for (let j = 0; j < chunkSize; j++) {
+        batch.update(itemOps[idx + j].ref, itemOps[idx + j].data);
+      }
+      await batch.commit();
+      idx += chunkSize;
+    }
   }
 
   async function unpublishItemsDocs(targetItems: AuctionItem[]) {
@@ -517,7 +549,11 @@ export function AdminDashboard({ auctionId }: Props) {
       .filter((item) => canUnpublishItem(item, (bidsByItem.get(item.id)?.length ?? 0) > 0))
       .map((item) => ({
         ref: doc(db, `auctions/${auctionId}/items/${item.id}`),
-        data: { status: "draft", updatedAt: serverTimestamp() } as UpdateData<DocumentData>,
+        data: {
+          status: "draft",
+          publishedAt: deleteField(),
+          updatedAt: serverTimestamp(),
+        } as UpdateData<DocumentData>,
       }));
     if (!ops.length) return;
     await commitBatchedUpdates(db, ops);
