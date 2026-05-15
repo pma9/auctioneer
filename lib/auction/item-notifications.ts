@@ -1,4 +1,4 @@
-import type { AuctionItem } from "@/lib/auction/types";
+import type { Auction, AuctionItem } from "@/lib/auction/types";
 
 /** Converts Firestore Timestamp-like values to epoch ms for comparisons and sorting. */
 export function firestoreTimestampToMs(value: unknown): number | null {
@@ -34,6 +34,25 @@ export function compareItemsByPublishedAtDesc(a: AuctionItem, b: AuctionItem): n
 
 export function sortItemsByPublishedAtDesc(items: AuctionItem[]): AuctionItem[] {
   return [...items].sort(compareItemsByPublishedAtDesc);
+}
+
+/**
+ * Opening (or reopening) the auction stamps `openedAt` / `reopenedAt`. Publishes that happened at or before that
+ * moment are the bootstrap catalog everyone sees — not incremental “drops”, so skip New styling and modal.
+ */
+export function publishWaveIsAfterAuctionGoLive(
+  auction: Pick<Auction, "latestItemsPublishedAt" | "openedAt" | "reopenedAt"> | null | undefined,
+): boolean {
+  const latestMs = firestoreTimestampToMs(auction?.latestItemsPublishedAt);
+  if (latestMs == null) return false;
+  const openedMs = firestoreTimestampToMs(auction?.openedAt);
+  const reopenedMs = firestoreTimestampToMs(auction?.reopenedAt);
+  const goLiveMoments = [openedMs, reopenedMs].filter(
+    (value): value is number => typeof value === "number" && Number.isFinite(value),
+  );
+  if (!goLiveMoments.length) return false;
+  const goLiveMs = Math.max(...goLiveMoments);
+  return latestMs > goLiveMs;
 }
 
 /** True when the guest should see the “new items” banner (unseen publish marker). */

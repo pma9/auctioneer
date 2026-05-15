@@ -3,10 +3,11 @@ import {
   compareItemsByPublishedAtDesc,
   firestoreTimestampToMs,
   isItemHighlightedForLatestPublishBatch,
+  publishWaveIsAfterAuctionGoLive,
   shouldShowNewItemsNotice,
   sortItemsByPublishedAtDesc,
 } from "@/lib/auction/item-notifications";
-import type { AuctionItem } from "@/lib/auction/types";
+import type { Auction, AuctionItem } from "@/lib/auction/types";
 
 function baseItem(partial: Partial<AuctionItem>): AuctionItem {
   return {
@@ -27,6 +28,44 @@ describe("item-notifications", () => {
     expect(firestoreTimestampToMs({ seconds: 1000, nanoseconds: 0 })).toBe(1_000_000);
     expect(firestoreTimestampToMs({ seconds: 10, nanoseconds: 500_000_000 })).toBe(10_500);
     expect(firestoreTimestampToMs(null)).toBeNull();
+  });
+
+  it("publishWaveIsAfterAuctionGoLive skips bootstrap catalog and pending previews", () => {
+    const base: Pick<Auction, "latestItemsPublishedAt" | "openedAt" | "reopenedAt"> = {
+      latestItemsPublishedAt: { seconds: 10, nanoseconds: 0 },
+      openedAt: { seconds: 20, nanoseconds: 0 },
+    };
+    expect(publishWaveIsAfterAuctionGoLive(base)).toBe(false);
+    expect(
+      publishWaveIsAfterAuctionGoLive({
+        ...base,
+        latestItemsPublishedAt: { seconds: 21, nanoseconds: 0 },
+      }),
+    ).toBe(true);
+
+    expect(
+      publishWaveIsAfterAuctionGoLive({
+        latestItemsPublishedAt: { seconds: 5, nanoseconds: 0 },
+        openedAt: undefined,
+        reopenedAt: undefined,
+      }),
+    ).toBe(false);
+
+    expect(
+      publishWaveIsAfterAuctionGoLive({
+        latestItemsPublishedAt: { seconds: 30, nanoseconds: 0 },
+        openedAt: { seconds: 10, nanoseconds: 0 },
+        reopenedAt: { seconds: 20, nanoseconds: 0 },
+      }),
+    ).toBe(true);
+
+    expect(
+      publishWaveIsAfterAuctionGoLive({
+        latestItemsPublishedAt: { seconds: 15, nanoseconds: 0 },
+        openedAt: { seconds: 10, nanoseconds: 0 },
+        reopenedAt: { seconds: 20, nanoseconds: 0 },
+      }),
+    ).toBe(false);
   });
 
   it("shouldShowNewItemsNotice compares latest to dismissed", () => {

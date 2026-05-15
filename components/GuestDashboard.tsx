@@ -16,6 +16,7 @@ import { isWholeDollarBid, maxAllowedBidForItem } from "@/lib/auction/bid-limits
 import { calculateFinancialSummary, formatCurrency } from "@/lib/auction/calculations";
 import {
   isItemHighlightedForLatestPublishBatch,
+  publishWaveIsAfterAuctionGoLive,
   shouldShowNewItemsNotice,
   sortItemsByPublishedAtDesc,
 } from "@/lib/auction/item-notifications";
@@ -399,8 +400,10 @@ export function GuestDashboard({ auctionId }: Props) {
     }
   }
 
+  const surfacingIncrementalPublishUx = publishWaveIsAfterAuctionGoLive(auction);
   const showNewItemsNotice =
     Boolean(auction) &&
+    surfacingIncrementalPublishUx &&
     shouldShowNewItemsNotice(
       auction?.latestItemsPublishedAt,
       guestMembership?.newItemsNotificationDismissedAt,
@@ -594,10 +597,9 @@ export function GuestDashboard({ auctionId }: Props) {
             {filteredActiveItems.map((item) => {
               const myBid = bidsByItem.get(item.id);
               const lockedByAnotherGuest = isLockedByAnotherGuest(item, user.uid);
-              const isNewHighlight = isItemHighlightedForLatestPublishBatch(
-                item,
-                auction?.latestItemsPublishedAt,
-              );
+              const isNewHighlight =
+                surfacingIncrementalPublishUx &&
+                isItemHighlightedForLatestPublishBatch(item, auction?.latestItemsPublishedAt);
               return (
                 <motion.article
                   layout
