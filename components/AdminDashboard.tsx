@@ -23,13 +23,16 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   ChevronDown,
   ChevronRight,
   Copy,
+  Filter,
   Menu,
   Pencil,
   Plus,
-  RotateCcw,
   Settings,
   Trash2,
   Undo2,
@@ -39,7 +42,6 @@ import {
 import { toast } from "sonner";
 import { SubmittingButton } from "@/components/SubmittingButton";
 import { calculateVickreyBreakdown, formatCurrency, normalizeItemName } from "@/lib/auction/calculations";
-import { auctionItemValidationErrors } from "@/lib/auction/item-validation";
 import { allSelectedHardDeletable, canHardDeleteItem } from "@/lib/auction/item-delete";
 import {
   allSelectedPublishable,
@@ -49,7 +51,7 @@ import {
   itemFormWouldBeValid,
   publishableDraftItems,
 } from "@/lib/auction/item-publish";
-import type { Auction, AuctionItem, Bid } from "@/lib/auction/types";
+import type { Auction, AuctionItem, Bid, ItemStatus } from "@/lib/auction/types";
 import { auth, db } from "@/lib/firebase/client";
 import { useRequiredFirebaseUser } from "@/components/useRequiredFirebaseUser";
 
@@ -83,6 +85,42 @@ const FIRESTORE_BATCH_SAFE = 450;
 
 const ALL_ITEMS_PRICE_COL = "w-20 shrink-0 whitespace-nowrap py-3 tabular-nums";
 
+const ALL_ITEM_STATUSES: ItemStatus[] = ["draft", "open", "locked", "settled", "invalid"];
+
+const ITEM_STATUS_LABEL: Record<ItemStatus, string> = {
+  draft: "Draft",
+  open: "Open",
+  locked: "Locked",
+  settled: "Settled",
+  invalid: "Invalid",
+};
+
+const ITEM_STATUS_SORT_RANK: Record<ItemStatus, number> = {
+  draft: 0,
+  open: 1,
+  locked: 2,
+  settled: 3,
+  invalid: 4,
+};
+
+type AllItemsSort = { key: "name" | "status"; direction: "asc" | "desc" };
+
+function sortAllItemsList(items: AuctionItem[], sort: AllItemsSort): AuctionItem[] {
+  const out = [...items];
+  const dir = sort.direction === "asc" ? 1 : -1;
+  if (sort.key === "name") {
+    out.sort((a, b) => dir * a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    return out;
+  }
+  out.sort((a, b) => {
+    const ra = ITEM_STATUS_SORT_RANK[a.status as ItemStatus] ?? 99;
+    const rb = ITEM_STATUS_SORT_RANK[b.status as ItemStatus] ?? 99;
+    if (ra !== rb) return dir * (ra - rb);
+    return dir * a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+  });
+  return out;
+}
+
 async function commitBatchedUpdates(
   firestore: Firestore,
   ops: { ref: ReturnType<typeof doc>; data: UpdateData<DocumentData> }[],
@@ -105,8 +143,11 @@ export function AdminDashboard({ auctionId }: Props) {
   const [activeTab, setActiveTab] = useState<AdminTab>("current");
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedWinnerUids, setExpandedWinnerUids] = useState<Set<string>>(() => new Set());
-  const [showRemovedItems, setShowRemovedItems] = useState(false);
-  const [showInvalidItems, setShowInvalidItems] = useState(true);
+  const [selectedStatusFilters, setSelectedStatusFilters] = useState<Set<ItemStatus>>(
+    () => new Set(ALL_ITEM_STATUSES),
+  );
+  const [allItemsSort, setAllItemsSort] = useState<AllItemsSort>({ key: "name", direction: "asc" });
+  const [statusFilterOpen, setStatusFilterOpen] = useState(false);
   const [itemForm, setItemForm] = useState<ItemForm>(emptyItemForm);
   const [editingItem, setEditingItem] = useState<AuctionItem | null>(null);
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
@@ -119,6 +160,8 @@ export function AdminDashboard({ auctionId }: Props) {
   const [isPublishAllModalOpen, setIsPublishAllModalOpen] = useState(false);
   const [bulkConfirmModal, setBulkConfirmModal] = useState<null | "publish" | "unpublish" | "delete">(null);
   const selectAllCheckboxRef = useRef<HTMLInputElement>(null);
+  const allStatusFilterCheckboxRef = useRef<HTMLInputElement>(null);
+  const statusFilterPanelRef = useRef<HTMLDivElement>(null);
   const [pendingHardDeleteItem, setPendingHardDeleteItem] = useState<AuctionItem | null>(null);
 
   useEffect(() => {
@@ -236,7 +279,7 @@ export function AdminDashboard({ auctionId }: Props) {
     try {
       if (editingItem) {
         const statusPatch: Record<string, string> = {};
-        if (editingItem.status === "invalid" || editingItem.status === "removed") {
+        if (editingItem.status === "invalid") {
           statusPatch.status = "draft";
         }
         await updateDoc(doc(db, `auctions/${auctionId}/items/${editingItem.id}`), {
@@ -398,22 +441,6 @@ export function AdminDashboard({ auctionId }: Props) {
     }
   }
 
-  async function restoreItem(item: AuctionItem) {
-    const errors = auctionItemValidationErrors(item);
-    await updateDoc(doc(db, `auctions/${auctionId}/items/${item.id}`), {
-      status: errors.length ? "invalid" : "draft",
-      importValidationErrors: errors.length ? errors : deleteField(),
-      updatedAt: serverTimestamp(),
-    });
-  }
-
-  const allTableItems = items
-    .filter((item) => {
-      if (!showRemovedItems && item.status === "removed") return false;
-      if (!showInvalidItems && item.status === "invalid") return false;
-      return true;
-    })
-    .sort((a, b) => Number(b.status === "invalid") - Number(a.status === "invalid"));
   const trimmedSearchQuery = searchQuery.trim();
   const currentRowsFuse = useMemo(
     () =>
@@ -424,14 +451,18 @@ export function AdminDashboard({ auctionId }: Props) {
       }),
     [analytics.currentRows],
   );
+  const statusFilteredItems = useMemo(
+    () => items.filter((item) => selectedStatusFilters.has(item.status)),
+    [items, selectedStatusFilters],
+  );
   const allItemsFuse = useMemo(
     () =>
-      new Fuse(allTableItems, {
+      new Fuse(statusFilteredItems, {
         keys: ["name", "notes", "keywords"],
         threshold: 0.35,
         ignoreLocation: true,
       }),
-    [allTableItems],
+    [statusFilteredItems],
   );
   const filteredCurrentRows = useMemo(
     () =>
@@ -440,13 +471,12 @@ export function AdminDashboard({ auctionId }: Props) {
         : analytics.currentRows,
     [analytics.currentRows, currentRowsFuse, trimmedSearchQuery],
   );
-  const filteredAllTableItems = useMemo(
-    () =>
-      trimmedSearchQuery
-        ? allItemsFuse.search(trimmedSearchQuery).map((result) => result.item)
-        : allTableItems,
-    [allItemsFuse, allTableItems, trimmedSearchQuery],
-  );
+  const filteredAllTableItems = useMemo(() => {
+    const base = trimmedSearchQuery
+      ? allItemsFuse.search(trimmedSearchQuery).map((result) => result.item)
+      : [...statusFilteredItems];
+    return sortAllItemsList(base, allItemsSort);
+  }, [allItemsFuse, allItemsSort, statusFilteredItems, trimmedSearchQuery]);
 
   const visibleIdSet = useMemo(
     () => new Set(filteredAllTableItems.map((item) => item.id)),
@@ -478,6 +508,26 @@ export function AdminDashboard({ auctionId }: Props) {
     if (!el) return;
     el.indeterminate = someVisibleSelected && !allVisibleSelected;
   }, [someVisibleSelected, allVisibleSelected]);
+
+  useEffect(() => {
+    const el = allStatusFilterCheckboxRef.current;
+    if (!el) return;
+    const allSelected = selectedStatusFilters.size === ALL_ITEM_STATUSES.length;
+    const noneSelected = selectedStatusFilters.size === 0;
+    el.indeterminate = !allSelected && !noneSelected;
+  }, [selectedStatusFilters]);
+
+  useEffect(() => {
+    if (!statusFilterOpen) return;
+    function handlePointerDown(event: PointerEvent) {
+      const panel = statusFilterPanelRef.current;
+      if (panel && !panel.contains(event.target as Node)) {
+        setStatusFilterOpen(false);
+      }
+    }
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [statusFilterOpen]);
 
   function toggleItemSelected(itemId: string) {
     setSelectedItemIds((prev) => {
@@ -821,7 +871,7 @@ export function AdminDashboard({ auctionId }: Props) {
                     type="button"
                     onClick={() => setIsPublishAllModalOpen(true)}
                   >
-                    Publish all drafts
+                    Publish all
                   </button>
                   {effectiveSelectedItems.length >= 1 && (
                     <>
@@ -941,40 +991,85 @@ export function AdminDashboard({ auctionId }: Props) {
           ) : (
             <section className="card space-y-4 overflow-hidden">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex flex-wrap gap-4">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
-                    <input
-                      id="show-invalid-items"
-                      type="checkbox"
-                      checked={showInvalidItems}
-                      onChange={(event) => setShowInvalidItems(event.target.checked)}
-                    />
-                    <label htmlFor="show-invalid-items">Show invalid</label>
+                <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
+                  <div className="relative min-w-0 flex-1 md:flex-none" ref={statusFilterPanelRef}>
+                    <button
+                      type="button"
+                      className="button-secondary inline-flex w-full min-w-0 items-center justify-center gap-2 px-3 py-2 text-sm md:w-auto"
+                      aria-expanded={statusFilterOpen}
+                      aria-haspopup="dialog"
+                      onClick={() => setStatusFilterOpen((open) => !open)}
+                    >
+                      <Filter size={16} aria-hidden />
+                      Status
+                      {selectedStatusFilters.size > 0 &&
+                      selectedStatusFilters.size < ALL_ITEM_STATUSES.length ? (
+                        <span className="rounded-full bg-slate-200 px-2 text-xs font-bold text-slate-700 tabular-nums">
+                          {selectedStatusFilters.size}
+                        </span>
+                      ) : null}
+                    </button>
+                    {statusFilterOpen ? (
+                      <div
+                        className="absolute left-0 top-full z-30 mt-2 min-w-[240px] max-w-[min(100vw-2rem,320px)] rounded-2xl border border-slate-200 bg-white p-3 shadow-lg"
+                        role="dialog"
+                        aria-label="Filter items by status"
+                      >
+                        <div className="space-y-2 text-sm font-semibold text-slate-700">
+                          <label className="flex cursor-pointer items-center gap-2">
+                            <input
+                              ref={allStatusFilterCheckboxRef}
+                              checked={selectedStatusFilters.size === ALL_ITEM_STATUSES.length}
+                              type="checkbox"
+                              onChange={(event) => {
+                                if (event.target.checked) {
+                                  setSelectedStatusFilters(new Set(ALL_ITEM_STATUSES));
+                                } else {
+                                  setSelectedStatusFilters(new Set());
+                                }
+                              }}
+                            />
+                            All items
+                          </label>
+                          <div className="border-t border-slate-100 pt-2">
+                            {ALL_ITEM_STATUSES.map((status) => (
+                              <label
+                                key={status}
+                                className="mt-2 flex cursor-pointer items-center gap-2 first:mt-0"
+                              >
+                                <input
+                                  checked={selectedStatusFilters.has(status)}
+                                  type="checkbox"
+                                  onChange={() => {
+                                    setSelectedStatusFilters((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(status)) next.delete(status);
+                                      else next.add(status);
+                                      return next;
+                                    });
+                                  }}
+                                />
+                                {ITEM_STATUS_LABEL[status]}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
-                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
-                    <input
-                      id="show-removed-items"
-                      type="checkbox"
-                      checked={showRemovedItems}
-                      onChange={(event) => setShowRemovedItems(event.target.checked)}
-                    />
-                    <label htmlFor="show-removed-items">Show removed</label>
-                  </div>
+                  <button
+                    className="button-secondary shrink-0 px-3 py-2 text-sm md:hidden"
+                    disabled={publishDraftCandidates.length === 0}
+                    type="button"
+                    onClick={() => setIsPublishAllModalOpen(true)}
+                  >
+                    Publish all
+                  </button>
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm font-semibold text-slate-600">
                   <span>Total item count: {analytics.totalItems}</span>
                   <span>Invalid item count: {analytics.invalidItems}</span>
                 </div>
-              </div>
-              <div className="flex md:hidden">
-                <button
-                  className="button-secondary text-sm"
-                  disabled={publishDraftCandidates.length === 0}
-                  type="button"
-                  onClick={() => setIsPublishAllModalOpen(true)}
-                >
-                  Publish all drafts
-                </button>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[920px] text-left text-sm">
@@ -992,20 +1087,89 @@ export function AdminDashboard({ auctionId }: Props) {
                           }}
                         />
                       </th>
-                      <th className="py-3">Item</th>
+                      <th className="py-3">
+                        <div className="flex items-center gap-1">
+                          <span>Item</span>
+                          <button
+                            className="icon-button shrink-0"
+                            type="button"
+                            title={
+                              allItemsSort.key === "name"
+                                ? `Sorted by name (${allItemsSort.direction === "asc" ? "A–Z" : "Z–A"})`
+                                : "Sort by item name"
+                            }
+                            aria-label={
+                              allItemsSort.key === "name"
+                                ? `Sort by item name, currently ${allItemsSort.direction === "asc" ? "ascending" : "descending"}; click to reverse`
+                                : "Sort by item name"
+                            }
+                            onClick={() =>
+                              setAllItemsSort((prev) =>
+                                prev.key === "name"
+                                  ? { key: "name", direction: prev.direction === "asc" ? "desc" : "asc" }
+                                  : { key: "name", direction: "asc" },
+                              )
+                            }
+                          >
+                            {allItemsSort.key === "name" ? (
+                              allItemsSort.direction === "asc" ? (
+                                <ArrowUp size={16} aria-hidden />
+                              ) : (
+                                <ArrowDown size={16} aria-hidden />
+                              )
+                            ) : (
+                              <ArrowUpDown size={16} aria-hidden />
+                            )}
+                          </button>
+                        </div>
+                      </th>
                       <th>Item notes</th>
                       <th className={ALL_ITEMS_PRICE_COL}>MSRP</th>
                       <th className={ALL_ITEMS_PRICE_COL}>Start $</th>
                       <th className={ALL_ITEMS_PRICE_COL}>Lock $</th>
-                      <th>Status</th>
+                      <th>
+                        <div className="flex items-center gap-1">
+                          <span>Status</span>
+                          <button
+                            className="icon-button shrink-0"
+                            type="button"
+                            title={
+                              allItemsSort.key === "status"
+                                ? `Sorted by status (${allItemsSort.direction === "asc" ? "forward" : "reverse"} order)`
+                                : "Sort by status"
+                            }
+                            aria-label={
+                              allItemsSort.key === "status"
+                                ? `Sort by status, currently ${allItemsSort.direction === "asc" ? "ascending" : "descending"}; click to reverse`
+                                : "Sort by status"
+                            }
+                            onClick={() =>
+                              setAllItemsSort((prev) =>
+                                prev.key === "status"
+                                  ? { key: "status", direction: prev.direction === "asc" ? "desc" : "asc" }
+                                  : { key: "status", direction: "asc" },
+                              )
+                            }
+                          >
+                            {allItemsSort.key === "status" ? (
+                              allItemsSort.direction === "asc" ? (
+                                <ArrowUp size={16} aria-hidden />
+                              ) : (
+                                <ArrowDown size={16} aria-hidden />
+                              )
+                            ) : (
+                              <ArrowUpDown size={16} aria-hidden />
+                            )}
+                          </button>
+                        </div>
+                      </th>
                       <th className="w-40 shrink-0 px-2 py-3" />
                     </tr>
                   </thead>
                   <tbody>
                     {filteredAllTableItems.map((item) => {
                       const itemHasBids = (analytics.bidsByItem.get(item.id)?.length ?? 0) > 0;
-                      const eligibleForPermanentDelete =
-                        item.status !== "removed" && canHardDeleteItem(item, itemHasBids);
+                      const eligibleForPermanentDelete = canHardDeleteItem(item, itemHasBids);
 
                       return (
                         <tr
@@ -1047,17 +1211,7 @@ export function AdminDashboard({ auctionId }: Props) {
                                 </button>
                               </div>
                               <div className="flex size-10 shrink-0 items-center justify-center">
-                                {item.status === "removed" ? (
-                                  <button
-                                    className="icon-button"
-                                    aria-label={`Restore ${item.name}`}
-                                    title="Restore"
-                                    type="button"
-                                    onClick={() => restoreItem(item)}
-                                  >
-                                    <RotateCcw size={16} />
-                                  </button>
-                                ) : canPublishItem(item) ? (
+                                {canPublishItem(item) ? (
                                   <button
                                     className="icon-button"
                                     aria-label={`Publish ${item.name}`}

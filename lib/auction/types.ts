@@ -1,6 +1,6 @@
 export type AuctionStatus = "pending" | "open" | "settling" | "closed";
 export type BidType = "regular" | "locked";
-export type ItemStatus = "draft" | "open" | "locked" | "settled" | "removed" | "invalid";
+export type ItemStatus = "draft" | "open" | "locked" | "settled" | "invalid";
 
 export type Auction = {
   id: string;

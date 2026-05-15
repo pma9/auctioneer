@@ -30,7 +30,6 @@ describe("item-delete helpers", () => {
     expect(canHardDeleteItem(baseItem({ status: "open" }), false)).toBe(false);
     expect(canHardDeleteItem(baseItem({ status: "locked" }), false)).toBe(false);
     expect(canHardDeleteItem(baseItem({ status: "settled" }), false)).toBe(false);
-    expect(canHardDeleteItem(baseItem({ status: "removed" }), false)).toBe(false);
   });
 
   it("canHardDeleteItem rejects when bids exist", () => {
