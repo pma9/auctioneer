@@ -40,6 +40,7 @@ import { toast } from "sonner";
 import { SubmittingButton } from "@/components/SubmittingButton";
 import { calculateVickreyBreakdown, formatCurrency, normalizeItemName } from "@/lib/auction/calculations";
 import { auctionItemValidationErrors } from "@/lib/auction/item-validation";
+import { allSelectedHardDeletable, canHardDeleteItem } from "@/lib/auction/item-delete";
 import {
   allSelectedPublishable,
   allSelectedUnpublishable,
@@ -74,10 +75,13 @@ type AdminSubmission =
   | "reopen"
   | "bulkPublish"
   | "bulkUnpublish"
-  | "bulkRemove"
+  | "bulkHardDelete"
+  | "hardDelete"
   | "publishAll";
 
 const FIRESTORE_BATCH_SAFE = 450;
+
+const ALL_ITEMS_PRICE_COL = "w-20 shrink-0 whitespace-nowrap py-3 tabular-nums";
 
 async function commitBatchedUpdates(
   firestore: Firestore,
@@ -115,6 +119,7 @@ export function AdminDashboard({ auctionId }: Props) {
   const [isPublishAllModalOpen, setIsPublishAllModalOpen] = useState(false);
   const [bulkConfirmModal, setBulkConfirmModal] = useState<null | "publish" | "unpublish" | "delete">(null);
   const selectAllCheckboxRef = useRef<HTMLInputElement>(null);
+  const [pendingHardDeleteItem, setPendingHardDeleteItem] = useState<AuctionItem | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -362,17 +367,35 @@ export function AdminDashboard({ auctionId }: Props) {
     setIsItemModalOpen(false);
   }
 
-  async function removeItem(item: AuctionItem) {
-    const row = analytics.rowsByItemId.get(item.id);
-    if (isLockedIn(item, row?.topBid)) {
-      const confirmed = window.confirm(`${item.name} is locked in. Remove it anyway?`);
-      if (!confirmed) return;
-    }
+  async function deleteItemsPermanentlyApi(itemIds: string[]) {
+    const token = await user?.getIdToken();
+    if (!token) throw new Error("Sign in as an auction admin first.");
 
-    await updateDoc(doc(db, `auctions/${auctionId}/items/${item.id}`), {
-      status: "removed",
-      updatedAt: serverTimestamp(),
-    });
+    for (const itemId of itemIds) {
+      const response = await fetch(`/api/auctions/${auctionId}/items/${itemId}`, {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const result = (await response.json().catch(() => ({}))) as { error?: unknown };
+      if (!response.ok) {
+        const message = typeof result?.error === "string" ? result.error : "Unable to delete item.";
+        throw new Error(message);
+      }
+    }
+  }
+
+  async function confirmHardDeleteSingle() {
+    if (submittingAction || !pendingHardDeleteItem) return;
+    setSubmittingAction("hardDelete");
+    try {
+      await deleteItemsPermanentlyApi([pendingHardDeleteItem.id]);
+      toast(`Permanently deleted ${pendingHardDeleteItem.name}.`);
+      setPendingHardDeleteItem(null);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to delete item.");
+    } finally {
+      setSubmittingAction(null);
+    }
   }
 
   async function restoreItem(item: AuctionItem) {
@@ -444,7 +467,7 @@ export function AdminDashboard({ auctionId }: Props) {
 
   const selectionCanPublish = allSelectedPublishable(effectiveSelectedItems);
   const selectionCanUnpublish = allSelectedUnpublishable(effectiveSelectedItems, analytics.bidsByItem);
-  const selectionHasRemovable = effectiveSelectedItems.some((item) => item.status !== "removed");
+  const selectionCanHardDeleteAll = allSelectedHardDeletable(effectiveSelectedItems, analytics.bidsByItem);
 
   const allVisibleSelected =
     filteredAllTableItems.length > 0 && filteredAllTableItems.every((item) => selectedItemIds.has(item.id));
@@ -455,14 +478,6 @@ export function AdminDashboard({ auctionId }: Props) {
     if (!el) return;
     el.indeterminate = someVisibleSelected && !allVisibleSelected;
   }, [someVisibleSelected, allVisibleSelected]);
-
-  const bulkDeleteLockedCount = useMemo(() => {
-    return effectiveSelectedItems.filter((item) => {
-      if (item.status === "removed") return false;
-      const row = analytics.rowsByItemId.get(item.id);
-      return isLockedIn(item, row?.topBid);
-    }).length;
-  }, [analytics.rowsByItemId, effectiveSelectedItems]);
 
   function toggleItemSelected(itemId: string) {
     setSelectedItemIds((prev) => {
@@ -508,15 +523,23 @@ export function AdminDashboard({ auctionId }: Props) {
     await commitBatchedUpdates(db, ops);
   }
 
-  async function removeItemsDocs(targetItems: AuctionItem[]) {
-    const ops = targetItems
-      .filter((item) => item.status !== "removed")
-      .map((item) => ({
-        ref: doc(db, `auctions/${auctionId}/items/${item.id}`),
-        data: { status: "removed", updatedAt: serverTimestamp() } as UpdateData<DocumentData>,
-      }));
-    if (!ops.length) return;
-    await commitBatchedUpdates(db, ops);
+  async function confirmBulkHardDelete() {
+    if (submittingAction) return;
+    if (!selectionCanHardDeleteAll) {
+      toast("All selected items must be unpublished (draft or invalid) with no bids.");
+      return;
+    }
+    setSubmittingAction("bulkHardDelete");
+    try {
+      await deleteItemsPermanentlyApi(effectiveSelectedItems.map((item) => item.id));
+      toast(`Permanently deleted ${effectiveSelectedItems.length} item(s).`);
+      clearItemSelection();
+      setBulkConfirmModal(null);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to delete items.");
+    } finally {
+      setSubmittingAction(null);
+    }
   }
 
   async function confirmBulkPublish() {
@@ -549,22 +572,6 @@ export function AdminDashboard({ auctionId }: Props) {
       setBulkConfirmModal(null);
     } catch (error) {
       toast(error instanceof Error ? error.message : "Unable to unpublish items.");
-    } finally {
-      setSubmittingAction(null);
-    }
-  }
-
-  async function confirmBulkRemove() {
-    if (submittingAction) return;
-    setSubmittingAction("bulkRemove");
-    try {
-      const targets = effectiveSelectedItems.filter((item) => item.status !== "removed");
-      await removeItemsDocs(targets);
-      toast(`Removed ${targets.length} item(s).`);
-      clearItemSelection();
-      setBulkConfirmModal(null);
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "Unable to remove items.");
     } finally {
       setSubmittingAction(null);
     }
@@ -804,11 +811,11 @@ export function AdminDashboard({ auctionId }: Props) {
                           <Undo2 size={18} />
                         </button>
                       )}
-                      {selectionHasRemovable && (
+                      {selectionCanHardDeleteAll && (
                         <button
                           className="icon-button rounded-full bg-white text-red-700 shadow-sm hover:bg-red-50"
-                          aria-label="Remove selected items"
-                          title="Remove selected"
+                          aria-label="Permanently delete selected items"
+                          title="Permanently delete selected"
                           type="button"
                           onClick={() => setBulkConfirmModal("delete")}
                         >
@@ -937,7 +944,7 @@ export function AdminDashboard({ auctionId }: Props) {
                 <table className="w-full min-w-[920px] text-left text-sm">
                   <thead className="text-slate-500">
                     <tr>
-                      <th className="w-10 py-3 pr-2">
+                      <th className="w-10 shrink-0 px-2 py-3">
                         <input
                           ref={selectAllCheckboxRef}
                           aria-label="Select all visible items"
@@ -951,91 +958,113 @@ export function AdminDashboard({ auctionId }: Props) {
                       </th>
                       <th className="py-3">Item</th>
                       <th>Item notes</th>
-                      <th>MSRP</th>
-                      <th>Start price</th>
-                      <th>Lock-in price</th>
+                      <th className={ALL_ITEMS_PRICE_COL}>MSRP</th>
+                      <th className={ALL_ITEMS_PRICE_COL}>Start $</th>
+                      <th className={ALL_ITEMS_PRICE_COL}>Lock $</th>
                       <th>Status</th>
-                      <th />
+                      <th className="w-40 shrink-0 px-2 py-3" />
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredAllTableItems.map((item) => (
-                      <tr
-                        className={`border-t border-slate-100 ${item.status === "invalid" ? "bg-yellow-50" : ""}`}
-                        key={item.id}
-                      >
-                        <td className="pr-2 align-middle">
-                          <input
-                            aria-label={`Select ${item.name}`}
-                            checked={selectedItemIds.has(item.id)}
-                            type="checkbox"
-                            onChange={() => toggleItemSelected(item.id)}
-                          />
-                        </td>
-                        <td className="py-3 font-medium">{item.name}</td>
-                        <td className="max-w-xs text-slate-600">
-                          <p>{item.notes || "-"}</p>
-                          {item.keywords && (
-                            <p className="mt-1 text-xs font-semibold text-slate-400">
-                              Keywords: {item.keywords}
-                            </p>
-                          )}
-                        </td>
-                        <td>{formatCurrency(item.msrp)}</td>
-                        <td>{formatCurrency(item.startingPrice)}</td>
-                        <td>{formatCurrency(item.lockInPrice)}</td>
-                        <td>{item.status}</td>
-                        <td className="whitespace-nowrap">
-                          {canPublishItem(item) && (
-                            <button
-                              className="icon-button"
-                              aria-label={`Publish ${item.name}`}
-                              title="Publish"
-                              type="button"
-                              onClick={() => void publishSingleItem(item)}
-                            >
-                              <Upload size={16} />
-                            </button>
-                          )}
-                          {canUnpublishItem(item, (analytics.bidsByItem.get(item.id)?.length ?? 0) > 0) && (
-                            <button
-                              className="icon-button"
-                              aria-label={`Unpublish ${item.name}`}
-                              title="Unpublish"
-                              type="button"
-                              onClick={() => void unpublishSingleItem(item)}
-                            >
-                              <Undo2 size={16} />
-                            </button>
-                          )}
-                          <button
-                            className="icon-button"
-                            aria-label={`Edit ${item.name}`}
-                            onClick={() => openEditItemModal(item)}
-                          >
-                            <Pencil size={16} />
-                          </button>
-                          {item.status !== "removed" && (
-                            <button
-                              className="icon-button"
-                              aria-label={`Remove ${item.name}`}
-                              onClick={() => removeItem(item)}
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          )}
-                          {item.status === "removed" && (
-                            <button
-                              className="icon-button"
-                              aria-label={`Restore ${item.name}`}
-                              onClick={() => restoreItem(item)}
-                            >
-                              <RotateCcw size={16} />
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredAllTableItems.map((item) => {
+                      const itemHasBids = (analytics.bidsByItem.get(item.id)?.length ?? 0) > 0;
+                      const eligibleForPermanentDelete =
+                        item.status !== "removed" && canHardDeleteItem(item, itemHasBids);
+
+                      return (
+                        <tr
+                          className={`border-t border-slate-100 ${item.status === "invalid" ? "bg-yellow-50" : ""}`}
+                          key={item.id}
+                        >
+                          <td className="px-2 align-middle">
+                            <input
+                              aria-label={`Select ${item.name}`}
+                              checked={selectedItemIds.has(item.id)}
+                              type="checkbox"
+                              onChange={() => toggleItemSelected(item.id)}
+                            />
+                          </td>
+                          <td className="py-3 font-medium">{item.name}</td>
+                          <td className="max-w-xs text-slate-600">
+                            <p>{item.notes || "-"}</p>
+                            {item.keywords && (
+                              <p className="mt-1 text-xs font-semibold text-slate-400">
+                                Keywords: {item.keywords}
+                              </p>
+                            )}
+                          </td>
+                          <td className={ALL_ITEMS_PRICE_COL}>{formatCurrency(item.msrp)}</td>
+                          <td className={ALL_ITEMS_PRICE_COL}>{formatCurrency(item.startingPrice)}</td>
+                          <td className={ALL_ITEMS_PRICE_COL}>{formatCurrency(item.lockInPrice)}</td>
+                          <td>{item.status}</td>
+                          <td className="w-40 shrink-0 whitespace-nowrap px-2 py-3 align-middle">
+                            <div className="flex items-center gap-1">
+                              <div className="flex size-10 shrink-0 items-center justify-center">
+                                <button
+                                  className="icon-button"
+                                  aria-label={`Edit ${item.name}`}
+                                  title="Edit"
+                                  type="button"
+                                  onClick={() => openEditItemModal(item)}
+                                >
+                                  <Pencil size={16} />
+                                </button>
+                              </div>
+                              <div className="flex size-10 shrink-0 items-center justify-center">
+                                {item.status === "removed" ? (
+                                  <button
+                                    className="icon-button"
+                                    aria-label={`Restore ${item.name}`}
+                                    title="Restore"
+                                    type="button"
+                                    onClick={() => restoreItem(item)}
+                                  >
+                                    <RotateCcw size={16} />
+                                  </button>
+                                ) : canPublishItem(item) ? (
+                                  <button
+                                    className="icon-button"
+                                    aria-label={`Publish ${item.name}`}
+                                    title="Publish"
+                                    type="button"
+                                    onClick={() => void publishSingleItem(item)}
+                                  >
+                                    <Upload size={16} />
+                                  </button>
+                                ) : canUnpublishItem(item, itemHasBids) ? (
+                                  <button
+                                    className="icon-button"
+                                    aria-label={`Unpublish ${item.name}`}
+                                    title="Unpublish"
+                                    type="button"
+                                    onClick={() => void unpublishSingleItem(item)}
+                                  >
+                                    <Undo2 size={16} />
+                                  </button>
+                                ) : (
+                                  <span className="pointer-events-none inline-flex size-10" aria-hidden />
+                                )}
+                              </div>
+                              <div className="flex size-10 shrink-0 items-center justify-center">
+                                {eligibleForPermanentDelete ? (
+                                  <button
+                                    className="icon-button"
+                                    aria-label={`Permanently delete ${item.name}`}
+                                    title="Permanently delete"
+                                    type="button"
+                                    onClick={() => setPendingHardDeleteItem(item)}
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                ) : (
+                                  <span className="pointer-events-none inline-flex size-10" aria-hidden />
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                     {!filteredAllTableItems.length && (
                       <tr className="border-t border-slate-100">
                         <td className="py-6 text-center text-slate-500" colSpan={8}>
@@ -1234,6 +1263,40 @@ export function AdminDashboard({ auctionId }: Props) {
         </div>
       )}
 
+      {pendingHardDeleteItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+          <motion.div
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-xl"
+            initial={{ opacity: 0, y: 24 }}
+          >
+            <h2 className="text-2xl font-bold">Permanently delete item?</h2>
+            <p className="mt-3 text-slate-600">
+              <strong>{pendingHardDeleteItem.name}</strong> will be removed from the auction permanently. This
+              cannot be undone.
+            </p>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+              <SubmittingButton
+                className="flex-1 rounded-full bg-red-600 px-5 py-3 font-bold text-white transition hover:bg-red-700"
+                isSubmitting={submittingAction === "hardDelete"}
+                submittingLabel="Deleting..."
+                onClick={() => void confirmHardDeleteSingle()}
+              >
+                Permanently delete
+              </SubmittingButton>
+              <button
+                className="button-secondary flex-1"
+                disabled={submittingAction === "hardDelete"}
+                type="button"
+                onClick={() => setPendingHardDeleteItem(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       {activeTab === "all" && (
         <div className="pointer-events-none fixed bottom-6 right-6 z-30 md:hidden">
           <div className="pointer-events-auto flex flex-col items-end gap-2">
@@ -1267,7 +1330,7 @@ export function AdminDashboard({ auctionId }: Props) {
                     Unpublish
                   </button>
                 )}
-                {selectionHasRemovable && (
+                {selectionCanHardDeleteAll && (
                   <button
                     className="rounded-xl px-4 py-3 text-left text-sm font-semibold text-red-700 hover:bg-red-50"
                     type="button"
@@ -1276,7 +1339,7 @@ export function AdminDashboard({ auctionId }: Props) {
                       setBulkConfirmModal("delete");
                     }}
                   >
-                    Delete
+                    Permanently delete
                   </button>
                 )}
               </motion.div>
@@ -1413,30 +1476,24 @@ export function AdminDashboard({ auctionId }: Props) {
             className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-xl"
             initial={{ opacity: 0, y: 24 }}
           >
-            <h2 className="text-2xl font-bold">Remove selected items?</h2>
+            <h2 className="text-2xl font-bold">Permanently delete selected items?</h2>
             <p className="mt-3 text-slate-600">
-              <strong>{effectiveSelectedItems.filter((item) => item.status !== "removed").length}</strong>{" "}
-              item(s) will be marked removed.
-              {bulkDeleteLockedCount > 0 ? (
-                <>
-                  {" "}
-                  <strong>{bulkDeleteLockedCount}</strong> are locked in with bids—guest bidding may still be
-                  affected until you resolve those items.
-                </>
-              ) : null}
+              This permanently deletes <strong>{effectiveSelectedItems.length}</strong> item document(s) from
+              Firestore. This cannot be undone. Only applies when every selected item is an unpublished draft
+              or invalid item with no bids.
             </p>
             <div className="mt-5 flex flex-col gap-2 sm:flex-row">
               <SubmittingButton
                 className="flex-1 rounded-full bg-red-600 px-5 py-3 font-bold text-white transition hover:bg-red-700"
-                isSubmitting={submittingAction === "bulkRemove"}
-                submittingLabel="Removing..."
-                onClick={confirmBulkRemove}
+                isSubmitting={submittingAction === "bulkHardDelete"}
+                submittingLabel="Deleting..."
+                onClick={confirmBulkHardDelete}
               >
-                Remove
+                Permanently delete
               </SubmittingButton>
               <button
                 className="button-secondary flex-1"
-                disabled={submittingAction === "bulkRemove"}
+                disabled={submittingAction === "bulkHardDelete"}
                 type="button"
                 onClick={() => setBulkConfirmModal(null)}
               >

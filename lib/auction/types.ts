@@ -39,6 +39,7 @@ export type AuctionItem = {
   updatedAt?: unknown;
   createdAt?: unknown;
   settledAt?: unknown;
+  lockedAt?: unknown;
 };
 
 export type Bid = {
